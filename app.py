@@ -150,7 +150,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ====【五千字以上17章节完整报告生成函数】====
+# ====【5000字以上17章节完整报告生成函数】====
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -307,22 +307,9 @@ def generate_report(df):
     return file_stream# ==================== 全局高级商业UI样式 ====================
 st.markdown("""
     <style>
-        /* 全局深蓝渐变背景 */
         .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
-        /* 全局导航按钮强制金黄色，无论在哪一页 */
-        .stButton > button {
-            background-color: #d4af37 !important;
-            color: #0b1120 !important;
-            font-weight: 600 !important;
-            border: 1px solid #d4af37 !important;
-            border-radius: 40px !important;
-            transition: 0.3s;
-        }
-        .stButton > button:hover {
-            background-color: #f7e68a !important;
-            color: #0b1120 !important;
-            border-color: #f7e68a !important;
-        }
+        .stButton > button { background-color: #d4af37 !important; color: #0b1120 !important; font-weight: 600 !important; border: 1px solid #d4af37 !important; border-radius: 40px !important; transition: 0.3s; }
+        .stButton > button:hover { background-color: #f7e68a !important; color: #0b1120 !important; border-color: #f7e68a !important; }
         .main-title { text-align: center; font-size: 64px; font-weight: 800; background: linear-gradient(to right, #d4af37, #f7e68a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
         .sub-title { text-align: center; font-size: 20px; color: rgba(255,255,255,0.8); margin-bottom: 40px; }
         .stat-card { background: rgba(255, 255, 255, 0.04); border-radius: 16px; padding: 20px; border-left: 4px solid #d4af37; margin-bottom: 10px; }
@@ -346,7 +333,7 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页（去掉飞机雷达，纯文字标题+一句话介绍） ====================
+# ==================== 首页 ====================
 if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
@@ -384,7 +371,6 @@ elif st.session_state.page == '多维度分析':
                 </div>
             """, unsafe_allow_html=True)
 
-        # 预警等级实时指示器
         alert_text, alert_desc = get_alert_level(df)
         st.markdown(f"""
             <div style="background: rgba(255, 0, 0, 0.2); border: 2px solid #ff4d4f; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
@@ -393,7 +379,6 @@ elif st.session_state.page == '多维度分析':
             </div>
         """, unsafe_allow_html=True)
 
-        # 区域横向对比雷达图 + 时间预测
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             st.markdown("#### 🕸️ 区域综合风险对比雷达图")
@@ -416,7 +401,6 @@ elif st.session_state.page == '多维度分析':
             else:
                 st.info("数据样本较少，无法进行预测。")
 
-        # 应急救援资源需求测算
         st.markdown("### 📦 应急救援资源需求测算与调配计划")
         resource_df = calc_resource_needs(df)
         if not resource_df.empty:
@@ -427,7 +411,6 @@ elif st.session_state.page == '多维度分析':
                 </div>
             """, unsafe_allow_html=True)
 
-        # 历史同期对比
         st.markdown("### ⏳ 历史同期对比分析")
         yoy = get_yoy_compare(df)
         if isinstance(yoy, dict):
@@ -535,13 +518,12 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 智能报告 ====================
+# ==================== 智能报告（已彻底删除st.info提示框） ====================
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df = load_data()
     if df.empty: st.warning("⚠️ 暂无数据")
     else:
-        st.info("系统自动生成包含17大章节、5张AI研判图表、物资测算、案例剖析、模型局限性的5000+字国标专业报告。")
         if st.button("🚀 生成并下载报告 (Word)", use_container_width=True):
             with st.spinner("正在生成深度报告中..."): st.download_button("📥 点击下载报告", data=generate_report(df), file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
 
