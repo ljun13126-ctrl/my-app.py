@@ -106,52 +106,34 @@ def get_custom_analysis(df, selected_cols, cross_col='灾种'):
     if df.empty or not selected_cols: return pd.DataFrame()
     return df.groupby(cross_col)[selected_cols].sum().reset_index()
 
-# ==================== [新增] 智能预测函数 ====================
 def predict_trend(df, freq='M', periods=3):
     trend = get_time_trend(df, freq)
     if trend.empty or len(trend) < 2: return pd.DataFrame()
     trend['idx'] = np.arange(len(trend))
     x = trend['idx'].values; y = trend['受灾人口(人)'].values
-    if len(x) < 2: return pd.DataFrame()
     coeffs = np.polyfit(x, y, 1)
     future_x = np.arange(len(trend), len(trend) + periods)
     pred_y = np.polyval(coeffs, future_x)
     pred_trend = pd.DataFrame({'时段': [f"预测{i+1}" for i in range(periods)], '受灾人口(人)': pred_y})
     return pd.concat([trend[['时段', '受灾人口(人)']], pred_trend])
 
-# ==================== [新增] 资源需求测算 ====================
 def calc_resource_needs(df):
     if df.empty: return pd.DataFrame()
-    pop = int(df['受灾人口(人)'].sum())
     relocate = int(df['紧急转移安置人口(累计值)(人)'].sum())
     houses = int(df['倒塌房屋间数(间)'].sum())
     need = {
         "物资类型": ["救灾帐篷(顶)", "棉被(床)", "饮用水(吨)", "应急食品(份)", "折叠床(张)"],
-        "预计需求总量": [
-            int(relocate / 5 * 1.1) + houses,
-            int(relocate * 1.1),
-            int(relocate * 2 * 7 / 1000),
-            int(relocate * 3 * 7),
-            int(relocate * 1.05)
-        ],
-        "调配建议": [
-            "从省级库前置调拨",
-            "启动政企联储机制",
-            "调度消防水罐车",
-            "联动周边市县紧急采购",
-            "协调社会力量捐赠"
-        ]
+        "预计需求总量": [int(relocate / 5 * 1.1) + houses, int(relocate * 1.1), int(relocate * 2 * 7 / 1000), int(relocate * 3 * 7), int(relocate * 1.05)],
+        "调配建议": ["从省级库前置调拨", "启动政企联储机制", "调度消防水罐车", "联动周边市县紧急采购", "协调社会力量捐赠"]
     }
     return pd.DataFrame(need)
 
-# ==================== [新增] 历史同期对比 ====================
 def get_yoy_compare(df):
     if df.empty or '灾害发生时间' not in df.columns: return "数据不足，无法对比"
     df_t = df.copy(); df_t['时间'] = pd.to_datetime(df_t['灾害发生时间'], errors='coerce'); df_t = df_t.dropna(subset=['时间'])
     current_loss = df_t['直接经济损失(万元)'].sum()
     return {"当前损失": current_loss, "对比说明": "与历史基线对比，损失处于高位（数据样本较少，仅供宏观参考）"}
 
-# ==================== [新增] 预警等级指示器 ====================
 def get_alert_level(df):
     stats = get_summary_stats(df)
     pop = stats.get('受灾总人口', 0); loss = stats.get('直接经济损失(万元)', 0)
@@ -160,7 +142,6 @@ def get_alert_level(df):
     elif pop > 100000 or loss > 50000: return "黄色预警", "中等"
     else: return "蓝色预警", "一般"
 
-# ==================== [新增] 区域对比雷达图数据 ====================
 def get_region_radar(df):
     if df.empty: return pd.DataFrame()
     top_regions = df.groupby('区域').agg({'受灾人口(人)':'sum', '直接经济损失(万元)':'sum', '倒塌房屋间数(间)':'sum', '农作物受灾面积(公顷)':'sum'}).reset_index().head(5)
@@ -169,7 +150,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ==================== 完整生成Word报告（3000+字，包含新增章节） ====================
+# ====【五千字以上17章节完整报告生成函数】====
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -185,7 +166,6 @@ def generate_report(df):
     region_top5 = get_custom_analysis1(df)
     freq_data = get_custom_analysis2(df)
     resource_df = calc_resource_needs(df)
-    radar_data = get_region_radar(df)
     alert_level = get_alert_level(df)
 
     def add_para(text):
@@ -201,19 +181,28 @@ def generate_report(df):
         p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run(text); run.font.name = '黑体'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体'); run.font.size = Pt(14)
 
-    add_heading("一、宏观背景与国内外形势分析")
+    add_heading("报告摘要")
+    add_para("本报告基于“灾智云”智能决策平台汇聚的多源灾情数据，通过大数据清洗、AI智能建模与多维度可视化分析，对本次四川省自然灾害的总体情况进行了全面复盘与深度研判。报告系统梳理了灾情发生的时空规律，剖析了灾损结构特点，精准测算了应急物资缺口，并结合国内外数智应急发展趋势与“十五五”规划要求，提出了具有针对性、前瞻性和可操作性的对策建议。现将主要情况报告如下。")
+
+    add_heading("一、组织领导与责任体系建设")
+    add_para("面对严峻复杂的自然灾害形势，省委、省政府高度重视，第一时间成立了由省主要领导挂帅的防灾减灾救灾指挥部，统筹协调应急管理、水利、自然资源、气象、交通、住建、消防等多部门力量。各级各部门坚决落实“党政同责、一岗双责、齐抓共管、失职追责”的要求，建立健全了“统一指挥、专常兼备、反应灵敏、上下联动”的应急管理体制。各级领导干部靠前指挥，深入一线，层层压实责任，确保各项防御措施落实到位。全省上下形成了“党委领导、政府负责、社会协同、公众参与”的防灾减灾救灾工作格局，为打赢抢险救援攻坚战提供了坚强的组织保障。")
+
+    add_heading("二、宏观背景与国内外形势分析")
     add_para("在全球气候变化的大背景下，极端天气事件频发、重发已成为新常态。从国际看，欧美发达国家正加速推进韧性城市和数字孪生建设，运用AI大模型辅助应急决策已成为国际前沿趋势。从国内看，我国“十五五”规划明确提出了“建设更高水平的平安中国”的战略目标。党的二十大报告进一步强调，要提高防灾减灾救灾和重大突发公共事件处置保障能力，加强国家区域应急力量建设。我国已全面进入应急管理数字化、智能化的新阶段，从传统的“人海战术”向“科技赋能”转变，是当前防灾减灾工作的主旋律。")
     add_para("四川省地处青藏高原与四川盆地过渡带，地形地质条件复杂，洪涝、地震、滑坡、泥石流等灾害点多面广，防灾减灾形势严峻复杂。随着城市化的推进，人口和财富高度向高风险区集聚，承灾体脆弱性增大，灾害放大效应显著。在这一背景下，依托大数据、人工智能和物联网等数字技术，构建“数智应急”体系，是提升自然灾害防治能力的必由之路。")
     add_para("本报告依托“灾智云”智能决策平台，对上报的灾情数据进行全量解析和深度挖掘，引入AI动态研判机制，实现了对灾害风险的智能预警与复盘，为各级党委政府和应急管理部门提供科学的决策支撑，牢牢守住防灾减灾的安全底线。")
 
-    add_heading("二、总体概况与预警响应级别")
+    add_heading("三、总体概况与预警响应级别")
     add_para(f"根据系统数据统计，本次共记录灾情事件 {stats.get('总记录数',0)} 起，全区域受灾总人口达到 {stats.get('受灾总人口',0)} 人。因灾死亡失踪人口 {stats.get('死亡失踪人口',0)} 人，紧急转移安置人口 {stats.get('转移安置人口',0)} 人，倒塌房屋间数 {stats.get('倒塌房屋间数',0)} 间，农作物受灾面积 {stats.get('农作物受灾面积(公顷)',0)} 公顷。直接经济损失共计 {stats.get('直接经济损失(万元)',0)} 万元。")
     add_para(f"基于AI大模型综合测算，当前整体预警级别定为【{alert_level[0]}】，严重程度为【{alert_level[1]}】。各级政府和相关部门需根据预警级别，按照预案立即启动相应等级的应急响应措施，做好抢险救援和群众转移安置工作。")
 
-    add_heading("三、历史灾害回顾与对比分析")
+    add_heading("四、历史灾害回顾与对比分析")
     add_para("结合系统历年数据比对，与近五年同期平均水平相比，本次灾情在受灾人口和经济损失两个核心指标上均出现了显著波动。特别是山区局地强降雨引发的山洪地质灾害造成的损失同比往年偏高。这说明防灾减灾任务依然艰巨，需警惕极端天气下的灾害放大效应。由于本期上报的样本量有限，对比结果主要作为趋势参考。")
 
-    add_heading("四、多维度深度分析与AI研判（含5张以上图表）")
+    add_heading("五、监测预警与信息报告机制建设")
+    add_para("“灾智云”平台充分融合了气象、水文、地质、水利等多源异构数据，依托空天地一体化物联感知网络，实行24小时不间断动态监测。通过AI算法对海量数据进行实时解析，平台实现了灾害风险的自动扫描和智能识别。各级应急管理部门严格执行24小时领导带班和专人值班制度，全面落实“首报要快、续报要准、终报要全”的信息报告要求。通过“隐患点+风险区”双控机制，精准落实预警响应“叫应”机制，确保预警信息第一时间以短信、广播、“村村响”等多元渠道直达基层责任人，坚决打通预警信息传递的“最后一公里”。")
+
+    add_heading("六、多维度深度分析与AI研判（含5张以上图表）")
     add_para("（一）时间维度。通过对灾害发生时间的统计，灾情呈现明显的季节性特征，主汛期（5至9月）是各类灾害的高发期。")
     add_para("（二）空间维度。灾情呈现出空间上的集聚特征，灾害多集中在特定行政区域，应实施“一点一策”管理。")
     add_para("（三）灾种维度。经济损失主要集中在住房、农林牧渔、基础设施和工矿商贸四大领域。")
@@ -264,37 +253,53 @@ def generate_report(df):
         doc.add_picture("g5.png", width=Inches(6.0))
         add_para("【AI深度分析】热力图揭示了各灾种在不同月份的发生规律。此类预警信息应提前推送至相关救援队伍。")
 
-    add_heading("五、典型案例深度剖析")
+    add_heading("七、典型案例深度剖析")
     if not df.empty:
         worst_case = df.sort_values('直接经济损失(万元)', ascending=False).iloc[0]
         add_para(f"本次灾情中，损失最严重的典型案例发生在【{worst_case.get('区域', '未知区域')}】，灾种为【{worst_case.get('灾种', '未知灾种')}】。该案例暴露出高风险区域在极端天气下的脆弱性。应深入研究该案例的发生机理，对周边类似隐患点进行细致排查，坚决补齐基层防灾的短板。")
 
-    add_heading("六、应急资源缺口测算与调配计划")
+    add_heading("八、应急资源缺口测算与调配计划")
     add_para("基于当前“紧急转移安置人口”及“倒塌房屋”数据，系统利用救援物资需求算法精准测算出了当前的物资缺口：")
     if not resource_df.empty:
         for _, row in resource_df.iterrows():
             add_para(f"【{row['物资类型']}】预计需求 {row['预计需求总量']}，调配建议：{row['调配建议']}。")
     add_para("建议立即启动省政府应急物资联储联调机制，保障灾区群众的基本生活需求和医疗救援需求，打通物资配送的“最后一百米”。")
 
-    add_heading("七、省市两级工作部署与政策落实")
+    add_heading("九、抢险救援与转移安置工作细则")
+    add_para("抢险救援方面，坚持“人民至上、生命至上”原则，坚持“三避让”和“三个紧急撤离”刚性要求（提前避让、主动避让、预防避让；危险隐患点强降雨时紧急撤离、发生异常险情时紧急撤离、险情不能准确判断时紧急撤离）。专业救援队伍、武警部队、消防救援队伍等各方力量迅速集结，冲锋在前，全力搜救被困人员，抢通受损道路。")
+    add_para("转移安置方面，严密组织危险区域群众转移，确保不漏一户、不落一人。各安置点严格执行“有饭吃、有水喝、有衣穿、有住处、有干净水、有病能医”的“六有”标准。同时，加强安置点消防、卫生防疫和治安管理，安排专门心理疏导人员抚慰受灾群众情绪，确保灾区社会大局和谐稳定。")
+
+    add_heading("十、灾后恢复重建与生产自救指导")
+    add_para("灾后恢复阶段，迅速组织力量抢修受损的水、电、气、路、通信等基础设施，保障受灾群众基本生活。出台农业灾后恢复生产指导意见，组织农技人员深入田间地头，指导农户开展农作物补种改种和病虫害防治。住建部门全力推进危房鉴定与排危除险，帮助受灾群众修缮重建房屋。同时，积极协调金融机构开辟绿色通道，为受灾企业和群众提供低息贷款支持，鼓励支持受灾群众开展生产自救，尽快恢复正常生产生活秩序。")
+
+    add_heading("十一、省市两级工作部署与政策落实")
     add_para("（一）省级层面。根据省委省政府关于全面提升防灾减灾救灾能力的工作部署，迅速启动省级应急指挥调度机制。利用省应急管理综合应用平台，实现多部门数据共享和灾害信息“一网统管”。通过“隐患点+风险区”双控机制，压实各级责任。")
     add_para("（二）市县级层面。各市县应参照省级要求，建立完善本级应急指挥体系。重点推进基层应急力量建设，针对高风险区域，落实“一对一”转移避险责任，确保紧急情况下应转尽转，坚决避免群死群伤事件发生。")
 
-    add_heading("八、对策建议与未来部署计划")
+    add_heading("十二、对策建议与未来部署计划")
     add_para("（一）推进“数智应急”转型。加快应急管理数据中台建设，利用机器学习技术构建全域数字孪生底座。通过自动化风险扫描算法，在灾害发生前精准识别风险。")
     add_para("（二）提升基层智能预警能力。大力推动预警信息精准推送，部署AI智能摄像头和传感器，对重点河段进行全天候自动化监测。")
     add_para("（三）优化物资储备与调配。基于大数据的空间分析，优化救灾物资前置点布局，在偏远山区、高风险区预置救灾物资。")
     add_para("（四）强化社会共治与韧性建设。推动韧性城市理念融入城乡建设，加强防灾减灾科普宣传，全面筑牢防灾减灾救灾的人民防线。")
     add_para("（五）完善全生命周期治理机制。构建从灾害预防、应急响应、灾后救助到恢复重建的全过程管理体系。以灾损评估系统为依据，高效推进灾后重建工作。")
 
-    add_heading("九、下阶段重点防范清单")
+    add_heading("十三、下阶段重点防范清单")
     add_para("根据历史灾害频次与分布规律，系统预测以下地区及灾种需作为下阶段重点防范对象：")
     add_para("（一）重点防范时段：主汛期（7-9月）。")
     add_para("（二）重点防范区域：受连续强降雨影响的盆地边缘山区及地质灾害隐患点周边区域。")
     add_para("（三）重点防范灾种：山洪、泥石流及城市内涝。")
     add_para("建议各地各部门紧盯风险清单，提前落实防范措施，织密织牢防灾减灾安全网。")
 
-    add_heading("十、数据来源与AI模型局限性说明")
+    add_heading("十四、宣传引导与社会动员机制")
+    add_para("宣传部门充分利用广播、电视、报刊、网络以及微信公众号、短视频平台等新媒体手段，全方位、多角度宣传防灾减灾知识，及时发布权威灾情信息和防汛救灾工作动态，正确引导社会舆情，防止谣言传播引发恐慌。同时，广泛动员企业、社会组织、志愿者等社会力量依法有序参与应急救援，大力弘扬“一方有难、八方支援”的优良传统，汇聚起众志成城、抢险救灾的强大合力。")
+
+    add_heading("十五、资金保障与政策支持")
+    add_para("财政部门统筹安排中央和省级救灾资金，迅速下拨至受灾地区。民政部门及时发放受灾群众临时生活救助、过渡期生活救助和遇难人员家属抚慰金，保障受灾群众基本生活。税务部门依法落实税收减免政策，金融监管部门督促各金融机构启动保险理赔绿色通道，做到应赔尽赔、快赔早赔。应急管理部门积极争取灾后重建相关项目资金，为灾区重建家园提供坚实的资金和物质基础。")
+
+    add_heading("十六、科技支撑与“十五五”规划深度融合")
+    add_para("未来五年，防灾减灾工作将全面对标“十五五”规划要求，加快人工智能、大数据、物联网、区块链等新一代信息技术在应急管理领域的深度应用。重点实施“数智应急”提质增效工程，构建“空天地”一体化感知网络，实现各类灾害风险隐患的自动识别、智能研判和闭环处置。进一步推进应急管理数字化转型，建设全域覆盖、上下贯通、数据融合、协同高效的数字应急指挥体系，以新质生产力赋能应急管理体系和能力现代化，全面筑牢防灾减灾救灾的科技防线。")
+
+    add_heading("十七、数据来源与AI模型局限性说明")
     add_para("本报告数据来源于“灾智云”智能决策平台接入的四川省减灾中心实时上报数据。本系统利用机器学习算法（包括趋势拟合、分类预测等）进行大数据建模。由于本期灾情数据样本量有限，AI模型的预测结果受历史数据完整性限制，仅作为辅助决策参考。随着数据量增加，模型精度将持续提升，欢迎各灾情上报单位持续提供高质量数据源。")
 
     file_stream = io.BytesIO()
@@ -302,9 +307,22 @@ def generate_report(df):
     return file_stream# ==================== 全局高级商业UI样式 ====================
 st.markdown("""
     <style>
+        /* 全局深蓝渐变背景 */
         .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
-        .stButton > button { background-color: #d4af37 !important; color: #0b1120 !important; font-weight: 600 !important; border: 1px solid #d4af37 !important; border-radius: 40px !important; transition: 0.3s; }
-        .stButton > button:hover { background-color: #f7e68a !important; color: #0b1120 !important; border-color: #f7e68a !important; }
+        /* 全局导航按钮强制金黄色，无论在哪一页 */
+        .stButton > button {
+            background-color: #d4af37 !important;
+            color: #0b1120 !important;
+            font-weight: 600 !important;
+            border: 1px solid #d4af37 !important;
+            border-radius: 40px !important;
+            transition: 0.3s;
+        }
+        .stButton > button:hover {
+            background-color: #f7e68a !important;
+            color: #0b1120 !important;
+            border-color: #f7e68a !important;
+        }
         .main-title { text-align: center; font-size: 64px; font-weight: 800; background: linear-gradient(to right, #d4af37, #f7e68a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
         .sub-title { text-align: center; font-size: 20px; color: rgba(255,255,255,0.8); margin-bottom: 40px; }
         .stat-card { background: rgba(255, 255, 255, 0.04); border-radius: 16px; padding: 20px; border-left: 4px solid #d4af37; margin-bottom: 10px; }
@@ -328,7 +346,7 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页 ====================
+# ==================== 首页（去掉飞机雷达，纯文字标题+一句话介绍） ====================
 if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
@@ -366,7 +384,7 @@ elif st.session_state.page == '多维度分析':
                 </div>
             """, unsafe_allow_html=True)
 
-        # [新增模块] 预警等级实时指示器
+        # 预警等级实时指示器
         alert_text, alert_desc = get_alert_level(df)
         st.markdown(f"""
             <div style="background: rgba(255, 0, 0, 0.2); border: 2px solid #ff4d4f; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
@@ -375,7 +393,7 @@ elif st.session_state.page == '多维度分析':
             </div>
         """, unsafe_allow_html=True)
 
-        # [新增模块] 区域横向对比雷达图 + 时间预测
+        # 区域横向对比雷达图 + 时间预测
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             st.markdown("#### 🕸️ 区域综合风险对比雷达图")
@@ -384,12 +402,7 @@ elif st.session_state.page == '多维度分析':
                 categories = ['受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']
                 fig = go.Figure()
                 for _, row in radar.iterrows():
-                    fig.add_trace(go.Scatterpolar(
-                        r=[row[cat] for cat in categories],
-                        theta=categories,
-                        fill='toself',
-                        name=row['区域']
-                    ))
+                    fig.add_trace(go.Scatterpolar(r=[row[cat] for cat in categories], theta=categories, fill='toself', name=row['区域']))
                 fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -403,7 +416,7 @@ elif st.session_state.page == '多维度分析':
             else:
                 st.info("数据样本较少，无法进行预测。")
 
-        # [新增模块] 应急救援资源需求测算
+        # 应急救援资源需求测算
         st.markdown("### 📦 应急救援资源需求测算与调配计划")
         resource_df = calc_resource_needs(df)
         if not resource_df.empty:
@@ -414,7 +427,7 @@ elif st.session_state.page == '多维度分析':
                 </div>
             """, unsafe_allow_html=True)
 
-        # [新增模块] 历史同期对比
+        # 历史同期对比
         st.markdown("### ⏳ 历史同期对比分析")
         yoy = get_yoy_compare(df)
         if isinstance(yoy, dict):
@@ -528,7 +541,7 @@ elif st.session_state.page == '智能报告':
     df = load_data()
     if df.empty: st.warning("⚠️ 暂无数据")
     else:
-        st.info("系统自动生成包含10大章节、5张AI研判图表、物资测算、案例剖析、模型局限性的3000+字国标专业报告。")
+        st.info("系统自动生成包含17大章节、5张AI研判图表、物资测算、案例剖析、模型局限性的5000+字国标专业报告。")
         if st.button("🚀 生成并下载报告 (Word)", use_container_width=True):
             with st.spinner("正在生成深度报告中..."): st.download_button("📥 点击下载报告", data=generate_report(df), file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
 
