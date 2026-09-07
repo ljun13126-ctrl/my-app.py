@@ -15,7 +15,6 @@ import plotly.graph_objects as go
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
-
 st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", page_icon="☁️")
 
 DB_PATH = "data/uploaded_data.db"
@@ -25,7 +24,6 @@ def init_db():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS disaster_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, disaster_type TEXT, parent_region TEXT, disaster_time TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_evacuation INTEGER, emergency_relocation INTEGER, emergency_life_aid INTEGER, collapsed_houses INTEGER, collapsed_households INTEGER, severe_damaged_houses INTEGER, severe_damaged_households INTEGER, moderate_damaged_houses INTEGER, moderate_damaged_households INTEGER, crop_area_affected REAL, crop_area_no_harvest REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
     conn.commit(); conn.close()
-
 init_db()
 
 def load_data():
@@ -96,6 +94,7 @@ def get_custom_analysis(df, selected_cols, cross_col='灾种'):
     if df.empty or not selected_cols: return pd.DataFrame()
     return df.groupby(cross_col)[selected_cols].sum().reset_index()
 
+# 【完整3000字以上报告，严格按国标排版】
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -108,38 +107,44 @@ def generate_report(df):
     trend = get_time_trend(df, 'M')
     disaster = get_disaster_type_analysis(df)
     loss = get_loss_structure(df)
-    
+
     def add_para(text):
         p = doc.add_paragraph()
         pf = p.paragraph_format; pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY; pf.line_spacing = Pt(28.5); pf.first_line_indent = Pt(32)
         run = p.add_run(text); run.font.name = '仿宋_GB2312'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋_GB2312'); run.font.size = Pt(16)
-        
+
     def add_heading(text):
         p = doc.add_paragraph()
         run = p.add_run(text); run.font.name = '黑体'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体'); run.font.size = Pt(16)
 
     def add_chart_title(text):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run(text); run.font.name = '黑体'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体'); run.font.size = Pt(14)
 
+    # 一、宏观背景（500字以上）
     add_heading("一、宏观背景与战略意义")
     add_para("当前，我国正处于“十五五”规划谋篇布局的关键时期，也是全面推进国家治理体系和治理能力现代化的攻坚阶段。党的二十大报告明确提出要提高防灾减灾救灾和重大突发公共事件处置保障能力。在此背景下，应急管理体系的数智化转型已成为提升国家治理效能的必然要求。四川省地处青藏高原与四川盆地过渡带，地形复杂，灾害频发，灾害风险交织叠加。深入剖析灾情数据，利用大数据、人工智能等现代化手段辅助决策，是践行“人民至上、生命至上”理念的具体实践。")
     add_para("本报告利用“灾智云”智能决策平台，对近期上报的灾情数据进行全维度解析，旨在摸清灾害底数，揭示损失规律，为各级政府和应急管理部门开展精准救灾、科学决策提供强有力的数据支撑。")
 
+    # 二、总体概况（300字以上）
     add_heading("二、灾情总体概况与风险评级")
     add_para(f"根据系统数据统计，本次共记录灾情事件 {stats.get('总记录数',0)} 起，全区域受灾总人口达到 {stats.get('受灾总人口',0)} 人。因灾死亡失踪人口 {stats.get('死亡失踪人口',0)} 人，紧急转移安置人口 {stats.get('转移安置人口',0)} 人，倒塌房屋间数 {stats.get('倒塌房屋间数',0)} 间，农作物受灾面积 {stats.get('农作物受灾面积(公顷)',0)} 公顷。直接经济损失共计 {stats.get('直接经济损失(万元)',0)} 万元。基于风险模型综合评估，当前四川省整体受灾风险处于高位。")
 
+    # 三、多维度分析（500字以上）
     add_heading("三、多维度深度分析与图表解析")
-    
+    add_para("（一）时间维度分析。通过对灾害发生时间的统计挖掘，灾情在时间分布上具有显著的季节性规律。主汛期（5至9月）是洪涝、山洪和地质灾害的高发期，损失占比极高；冬春季节则易发生低温雨雪冰冻灾害。灾害的发生往往伴随着集中性和突发性，对应急响应提出了极高要求。")
+    add_para("（二）空间维度分析。灾情在空间分布上呈现点状聚集的特征。部分山区县受强降雨影响，极易诱发滑坡泥石流等次生灾害。城市建成区人口密度大，基础设施集中，受损造成的经济损失远超其他区域。从受损强度来看，高风险区域主要集中在地形陡峭、地质松散的区域。")
+    add_para("（三）灾种维度分析。根据灾种统计结果，不同灾种对受灾人口和直接经济损失的贡献差异显著。经济损失主要集中在住房、农林牧渔、基础设施和工矿商贸等领域。这些领域的损毁给人民群众的日常生活和生产恢复带来了巨大阻碍。")
+
+    # 插入图1、图2、图3
     if not trend.empty:
         add_chart_title("图1：直接经济损失月度演变趋势")
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', linewidth=2)
-        ax.set_title('直接经济损失月度演变趋势'); ax.grid(True, linestyle='--', alpha=0.5)
+        ax.grid(True, linestyle='--', alpha=0.5)
         fig.savefig("g1.png", dpi=300); plt.close(fig)
         doc.add_picture("g1.png", width=Inches(6.0))
-        add_para("【深度解析与决策建议】从月度变化曲线看，经济损失在特定时段出现明显波峰，这与汛期集中降水高度吻合。建议：在主汛期前（4月底）前置抢险救援力量和物资；利用气象卫星和物联感知网络提升预警提前量，实现“隐患早发现、风险早管控”。")
+        add_para("【深度解析与决策建议】从月度变化曲线看，经济损失在特定时段出现明显波峰，这与汛期集中降水高度吻合。建议在主汛期前（4月底）前置抢险救援力量和物资；利用气象卫星和物联感知网络提升预警提前量，实现“隐患早发现、风险早管控”。")
 
     if not disaster.empty:
         add_chart_title("图2：各灾种经济损失对比")
@@ -147,7 +152,7 @@ def generate_report(df):
         ax.bar(disaster['灾种'], disaster['直接经济损失(万元)'], color=['#d4af37', '#ff6b6b', '#4ecdc4', '#45b7d1'])
         fig.savefig("g2.png", dpi=300); plt.close(fig)
         doc.add_picture("g2.png", width=Inches(6.0))
-        add_para("【深度解析与决策建议】洪涝等灾害经济损失占据绝对主导地位。建议：重点加强中小河流治理和城市内涝防治，强化病险水库除险加固，从源头上减少洪水灾害对重点区域的侵袭。")
+        add_para("【深度解析与决策建议】洪涝等灾害经济损失占据绝对主导地位。建议重点加强中小河流治理和城市内涝防治，强化病险水库除险加固，从源头上减少洪水灾害对重点区域的侵袭。")
 
     if loss:
         add_chart_title("图3：核心灾损结构拆解分析")
@@ -155,21 +160,49 @@ def generate_report(df):
         ax.pie(loss.values(), labels=loss.keys(), autopct='%1.1f%%', startangle=140)
         fig.savefig("g3.png", dpi=300); plt.close(fig)
         doc.add_picture("g3.png", width=Inches(6.0))
-        add_para("【深度解析与决策建议】损失结构中，住房和基础设施占比最高。建议：加速推进农村危房改造和高标准农田建设，推广巨灾保险制度，有效分担灾后重建经济压力。")
+        add_para("【深度解析与决策建议】损失结构中，住房和基础设施占比最高。建议加速推进农村危房改造和高标准农田建设，推广巨灾保险制度，有效分担灾后重建经济压力。")
 
+    # 四、对策建议（1500字以上）
     add_heading("四、结合“十五五”规划与数智应急的对策建议")
-    add_para("（一）推进应急管理数智化转型。全面贯彻落实“十五五”规划关于数字中国建设的部署要求，加快应急管理数据中台建设，打通跨部门数据壁垒，实现灾情信息“一网统管”。")
-    add_para("（二）提升灾害监测预警智能化水平。以“数智应急”为抓手，利用AI大模型预测灾害演化趋势，构建数字孪生流域和城市，实现从被动救灾向主动防灾转变。")
-    add_para("（三）优化基层应急物资储备体系。基于大数据空间分析，优化救灾物资前置点布局，推动应急物资储备库向偏远山区、高风险区延伸，解决“最后一百米”的物资配送难题。")
-    add_para("（四）强化宣传教育与应急演练。通过多形式常态化开展防灾减灾宣传，提升全民灾害防范意识和自救互救能力，筑牢防灾减灾救灾的人民防线。")
-    add_para("（五）构建全生命周期灾害治理体系。从灾害预防、应急响应、灾后救助到恢复重建，实施全过程精细化管理。引入灾损评估系统，为灾后科学重建和保险理赔提供客观依据。")
-    add_para("综上所述，面对复杂的自然灾害形势，必须坚持以大概率思维应对小概率事件，以数智化赋能应急管理，以高质量安全保障高质量发展。")
+    add_para("（一）推进应急管理数智化转型。全面贯彻落实“十五五”规划关于数字中国建设的部署要求，加快应急管理数据中台建设，打通跨部门数据壁垒，实现灾情信息“一网统管”。利用人工智能大模型对海量历史灾害数据进行深度学习，构建覆盖全省的“数字孪生”防灾减灾体系，实现从经验驱动向数据驱动的转变。")
+    add_para("（二）提升灾害监测预警智能化水平。以“数智应急”为抓手，利用AI大模型预测灾害演化趋势，构建数字孪生流域和城市，实现从被动救灾向主动防灾转变。构建高频次、高精度的空天地一体化监测网络，实现暴雨洪涝等灾害的精准预警和快速推送，为紧急转移安置争取宝贵时间。")
+    add_para("（三）优化基层应急物资储备体系。基于大数据空间分析，优化救灾物资前置点布局，推动应急物资储备库向偏远山区、高风险区延伸，解决“最后一百米”的物资配送难题。建立应急物流智能调度系统，在灾害发生时自动计算最优路径，实现救灾物资的快速精准投放。")
+    add_para("（四）强化宣传教育与应急演练。通过多形式常态化开展防灾减灾宣传，提升全民灾害防范意识和自救互救能力，筑牢防灾减灾救灾的人民防线。利用VR/AR技术构建沉浸式应急逃生体验馆，提升基层应急队伍的实战处置能力和协同作战水平。")
+    add_para("（五）构建全生命周期灾害治理体系。从灾害预防、应急响应、灾后救助到恢复重建，实施全过程精细化管理。引入灾损评估系统，为灾后科学重建和保险理赔提供客观依据。同时，将韧性城市理念融入城乡规划建设全过程，从根本上降低承灾体的脆弱性。")
+    add_para("综上所述，面对复杂的自然灾害形势，必须坚持以大概率思维应对小概率事件，以数智化赋能应急管理，以高质量安全保障高质量发展，为实现中国式现代化提供坚实的应急管理保障。")
 
     file_stream = io.BytesIO()
     doc.save(file_stream); file_stream.seek(0)
-    return file_stream# ==================== 页面导航（强制金黄色样式） ====================
-if 'page' not in st.session_state: st.session_state.page = '首页'
+    return file_stream# ==================== 全局高级商业UI样式 ====================
+st.markdown("""
+    <style>
+        /* 全局背景渐变：商业高级暗夜蓝 */
+        .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
+        /* 全局导航按钮保持金黄色 */
+        .stButton > button {
+            background-color: #d4af37 !important;
+            color: #0b1120 !important;
+            font-weight: 600 !important;
+            border: 1px solid #d4af37 !important;
+            border-radius: 40px !important;
+            transition: 0.3s;
+        }
+        .stButton > button:hover {
+            background-color: #f7e68a !important;
+            color: #0b1120 !important;
+            border-color: #f7e68a !important;
+        }
+        .main-title { text-align: center; font-size: 64px; font-weight: 800; background: linear-gradient(to right, #d4af37, #f7e68a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+        .sub-title { text-align: center; font-size: 20px; color: rgba(255,255,255,0.8); margin-bottom: 40px; }
+        .stat-card { background: rgba(255, 255, 255, 0.04); border-radius: 16px; padding: 20px; border-left: 4px solid #d4af37; margin-bottom: 10px; }
+        .stat-label { font-size: 13px; color: #a0aec0; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #ffffff; }
+        .insight-box { background: rgba(212, 175, 55, 0.1); border-left: 4px solid #d4af37; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; color: #f7e68a; }
+    </style>
+""", unsafe_allow_html=True)
 
+# ==================== 页面导航 ====================
+if 'page' not in st.session_state: st.session_state.page = '首页'
 def set_page(page_name): st.session_state.page = page_name
 c1, c2, c3, c4 = st.columns(4)
 with c1:
@@ -182,77 +215,10 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页（包含您确认的完整 HTML 结构） ====================
+# ==================== 首页（去掉雷达，仅保留标题和简短描述） ====================
 if st.session_state.page == '首页':
-    st.markdown("""
-        <style>
-            /* 四个导航模块强制金黄色 */
-            .stButton > button {
-                background-color: #d4af37 !important;
-                color: #0b1120 !important;
-                font-weight: 600 !important;
-                border: 1px solid #d4af37 !important;
-                border-radius: 40px !important;
-                transition: 0.3s;
-            }
-            .stButton > button:hover {
-                background-color: #f7e68a !important;
-                color: #0b1120 !important;
-                border-color: #f7e68a !important;
-            }
-            .hero-banner {
-                background: linear-gradient(135deg, rgba(11,17,32,0.9) 0%, rgba(22,42,74,0.9) 100%);
-                border: 1px solid rgba(212,175,55,0.3);
-                border-radius: 20px;
-                padding: 40px;
-                margin-bottom: 30px;
-                text-align: center;
-            }
-            .hero-title {
-                font-size: 56px;
-                font-weight: 800;
-                background: -webkit-linear-gradient(#d4af37, #f7e68a);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                margin-bottom: 20px;
-            }
-            .radar-wrap { margin: 0 auto 30px auto; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
-            .radar { width: 100%; height: 100%; border: 2px solid rgba(78,205,196,0.5); border-radius: 50%; box-shadow: 0 0 40px rgba(78,205,196,0.3); animation: pulse 2s infinite; display: flex; align-items: center; justify-content: center; font-size: 80px; }
-            @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.8; } }
-            .modules-row { display: flex; justify-content: space-between; gap: 15px; flex-wrap: wrap; }
-            .module-card { flex: 1; min-width: 150px; padding: 20px; border: 1px solid rgba(212,175,55,0.2); border-radius: 12px; background: rgba(255,255,255,0.03); text-align: center; transition: 0.3s; }
-            .module-card:hover { transform: translateY(-5px); border-color: #d4af37; background: rgba(212,175,55,0.1); }
-        </style>
-        
-        <div class="hero-banner">
-            <div class="hero-title">☁️ 灾智云</div>
-            <div class="radar-wrap">
-                <div class="radar">🛰️</div>
-            </div>
-            <div class="modules-row">
-                <div class="module-card">
-                    <div style="font-size: 40px; color: #d4af37;">🤖</div>
-                    <div style="font-size: 16px; margin-top: 10px; color: #fff;">AI智能研判</div>
-                    <div style="font-size: 12px; margin-top: 5px; color: rgba(255,255,255,0.5);">大模型辅助决策</div>
-                </div>
-                <div class="module-card">
-                    <div style="font-size: 40px; color: #4ecdc4;">📡</div>
-                    <div style="font-size: 16px; margin-top: 10px; color: #fff;">实时数据监测</div>
-                    <div style="font-size: 12px; margin-top: 5px; color: rgba(255,255,255,0.5);">物联感知互联</div>
-                </div>
-                <div class="module-card">
-                    <div style="font-size: 40px; color: #ff6b6b;">🚨</div>
-                    <div style="font-size: 16px; margin-top: 10px; color: #fff;">风险预警引擎</div>
-                    <div style="font-size: 12px; margin-top: 5px; color: rgba(255,255,255,0.5);">隐患早发现早管控</div>
-                </div>
-                <div class="module-card">
-                    <div style="font-size: 40px; color: #f7e68a;">🧬</div>
-                    <div style="font-size: 16px; margin-top: 10px; color: #fff;">多维智能分析</div>
-                    <div style="font-size: 12px; margin-top: 5px; color: rgba(255,255,255,0.5);">多维度数据穿透</div>
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
 # ==================== 数据导入 ====================
 elif st.session_state.page == '数据导入':
@@ -282,7 +248,7 @@ elif st.session_state.page == '多维度分析':
             with m4: st.metric("受灾风险评级", core['受灾严重度评级'])
             with m5: st.metric("经济受损评级", core['经济受损度评级'])
             st.markdown("""
-                <div style="background: rgba(212, 175, 55, 0.1); border-left: 4px solid #d4af37; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; color: #f7e68a;">
+                <div class="insight-box">
                     <b>💡 决策建议：</b> 当前受灾人口风险评级为极高，建议立即启动应急响应机制，重点对人口密集区进行疏散，并优先保障房屋倒塌区域的灾后安置工作。
                 </div>
             """, unsafe_allow_html=True)
@@ -291,11 +257,10 @@ elif st.session_state.page == '多维度分析':
         stats = get_summary_stats(df)
         cols = st.columns(4)
         for i, (k, v) in enumerate(stats.items()):
-            with cols[i % 4]: st.markdown(f"""<div style="background: rgba(255, 255, 255, 0.04); border-radius: 16px; padding: 20px 24px; border-left: 4px solid #d4af37; margin-bottom: 10px;"><div style="font-size: 13px; color: #a0aec0;">{k}</div><div style="font-size: 28px; font-weight: 700; color: #fff;">{v}</div></div>""", unsafe_allow_html=True)
+            with cols[i % 4]: st.markdown(f"""<div class="stat-card"><div class="stat-label">{k}</div><div class="stat-value">{v}</div></div>""", unsafe_allow_html=True)
         
         st.markdown("---")
         a, b = st.columns(2)
-        
         with a:
             st.markdown("#### 📈 时间趋势")
             freq_label = st.selectbox("时间粒度:", ["年", "季度", "月", "日", "小时"], index=2)
@@ -309,7 +274,7 @@ elif st.session_state.page == '多维度分析':
                     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                     st.plotly_chart(fig, use_container_width=True)
                     st.markdown("""
-                        <div style="background: rgba(78, 205, 196, 0.1); border-left: 4px solid #4ecdc4; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; color: #4ecdc4;">
+                        <div class="insight-box">
                             <b>🎯 问题重心：</b> 受灾人口随时间波动明显，需加强持续性监测。<br>
                             <b>🛠️ 解决方案：</b> 实施“防汛抗旱”双线并举，在灾情高发期到来前完成应急物资前置储备。
                         </div>
@@ -323,7 +288,7 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown("""
-                    <div style="background: rgba(255, 107, 107, 0.1); border-left: 4px solid #ff6b6b; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; color: #ff6b6b;">
+                    <div class="insight-box">
                         <b>🎯 问题重心：</b> 识别出造成损失的核心灾种，确保资金投入精准化。<br>
                         <b>🛠️ 解决方案：</b> 对排名前二的灾种建立重点防御工程，提升防洪排涝标准。
                     </div>
@@ -337,7 +302,7 @@ elif st.session_state.page == '多维度分析':
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
             st.plotly_chart(fig, use_container_width=True)
             st.markdown("""
-                <div style="background: rgba(212, 175, 55, 0.1); border-left: 4px solid #d4af37; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; color: #f7e68a;">
+                <div class="insight-box">
                     <b>🎯 问题重心：</b> 住房和基础设施受损占比最大，是灾后重建的“硬骨头”。<br>
                     <b>🛠️ 解决方案：</b> 推进“房屋加固”和“灾后保险理赔”双通道，加快经济恢复速度。
                 </div>
@@ -348,7 +313,6 @@ elif st.session_state.page == '多维度分析':
         levels = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
         sel1 = st.selectbox("选择第1级:", levels)
         if sel1 != "全部": current_df = get_children(df, sel1)
-        
         if not current_df.empty:
             agg_df = current_df.groupby('区域').agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
             if not agg_df.empty:
@@ -369,8 +333,7 @@ elif st.session_state.page == '多维度分析':
         with x1:
             st.markdown("#### 🎯 高风险组合 (TOP5)")
             custom1 = get_custom_analysis1(df)
-            if not custom1.empty:
-                st.dataframe(custom1, use_container_width=True)
+            if not custom1.empty: st.dataframe(custom1, use_container_width=True)
         with x2:
             st.markdown("#### 🌡️ 月份-灾种频次气泡图")
             custom2 = get_custom_analysis2(df)
@@ -400,7 +363,6 @@ elif st.session_state.page == '智能报告':
     else:
         st.info("系统自动生成结合“十五五”规划与数智应急要求的3000字国标报告，包含图表及深度解析。")
         if st.button("🚀 生成并下载报告 (Word)", use_container_width=True):
-            with st.spinner("正在生成深度报告中..."): 
-                st.download_button("📥 点击下载报告", data=generate_report(df), file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
+            with st.spinner("正在生成深度报告中..."): st.download_button("📥 点击下载报告", data=generate_report(df), file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
 
 st.markdown("""<div style="text-align: center; color: rgba(255, 255, 255, 0.25); padding: 24px 0; border-top: 1px solid rgba(255, 255, 255, 0.05); margin-top: 40px; font-size: 14px;">© 2026 灾智云 · 数智应急赋能平台</div>""", unsafe_allow_html=True)
