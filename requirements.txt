@@ -4,3 +4,4 @@ plotly
 python-docx
 openpyxl
 matplotlib
+numpy
