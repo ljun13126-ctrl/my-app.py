@@ -13,7 +13,6 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 全局设置
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -183,7 +182,7 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页（修复排版错位，标题改为灾智云） ====================
+# ==================== 首页（包含您确认的完整 HTML 结构） ====================
 if st.session_state.page == '首页':
     st.markdown("""
         <style>
@@ -201,7 +200,6 @@ if st.session_state.page == '首页':
                 color: #0b1120 !important;
                 border-color: #f7e68a !important;
             }
-
             .hero-banner {
                 background: linear-gradient(135deg, rgba(11,17,32,0.9) 0%, rgba(22,42,74,0.9) 100%);
                 border: 1px solid rgba(212,175,55,0.3);
@@ -218,63 +216,19 @@ if st.session_state.page == '首页':
                 -webkit-text-fill-color: transparent;
                 margin-bottom: 20px;
             }
-            .radar-wrap {
-                margin: 0 auto 30px auto;
-                width: 200px;
-                height: 200px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .radar {
-                width: 100%;
-                height: 100%;
-                border: 2px solid rgba(78,205,196,0.5);
-                border-radius: 50%;
-                box-shadow: 0 0 40px rgba(78,205,196,0.3);
-                animation: pulse 2s infinite;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 80px;
-            }
-            @keyframes pulse {
-                0% { transform: scale(0.95); opacity: 0.8; }
-                50% { transform: scale(1.05); opacity: 1; }
-                100% { transform: scale(0.95); opacity: 0.8; }
-            }
-            
-            /* Flex弹性布局防止错位与报错 */
-            .modules-row {
-                display: flex;
-                justify-content: space-between;
-                gap: 15px;
-                flex-wrap: wrap;
-            }
-            .module-card {
-                flex: 1;
-                min-width: 150px;
-                padding: 20px;
-                border: 1px solid rgba(212,175,55,0.2);
-                border-radius: 12px;
-                background: rgba(255,255,255,0.03);
-                text-align: center;
-                transition: 0.3s;
-            }
-            .module-card:hover {
-                transform: translateY(-5px);
-                border-color: #d4af37;
-                background: rgba(212,175,55,0.1);
-            }
+            .radar-wrap { margin: 0 auto 30px auto; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
+            .radar { width: 100%; height: 100%; border: 2px solid rgba(78,205,196,0.5); border-radius: 50%; box-shadow: 0 0 40px rgba(78,205,196,0.3); animation: pulse 2s infinite; display: flex; align-items: center; justify-content: center; font-size: 80px; }
+            @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.8; } }
+            .modules-row { display: flex; justify-content: space-between; gap: 15px; flex-wrap: wrap; }
+            .module-card { flex: 1; min-width: 150px; padding: 20px; border: 1px solid rgba(212,175,55,0.2); border-radius: 12px; background: rgba(255,255,255,0.03); text-align: center; transition: 0.3s; }
+            .module-card:hover { transform: translateY(-5px); border-color: #d4af37; background: rgba(212,175,55,0.1); }
         </style>
         
         <div class="hero-banner">
             <div class="hero-title">☁️ 灾智云</div>
-            
             <div class="radar-wrap">
                 <div class="radar">🛰️</div>
             </div>
-            
             <div class="modules-row">
                 <div class="module-card">
                     <div style="font-size: 40px; color: #d4af37;">🤖</div>
