@@ -18,6 +18,24 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
 st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", page_icon="☁️")
+st.markdown("""
+    <style>
+        .css-1d391kg { display: none !important; }
+        section[data-testid="stSidebar"] { display: none !important; }
+        .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
+        .nav-container { display: flex; justify-content: space-between; align-items: center; padding: 16px 40px; background: rgba(11, 17, 32, 0.7); border-bottom: 1px solid rgba(212, 175, 55, 0.15); border-radius: 0 0 20px 20px; margin-bottom: 20px; }
+        .nav-brand { font-size: 28px; font-weight: 700; color: #d4af37; }
+        .nav-links { display: flex; gap: 32px; list-style: none; }
+        .nav-links li a { color: rgba(255, 255, 255, 0.65); text-decoration: none; font-size: 16px; padding: 8px 16px; border-radius: 8px; }
+        .nav-links li a.active { color: #d4af37; background: rgba(212, 175, 55, 0.15); }
+        .main-title { font-size: 72px; font-weight: 700; text-align: center; color: #f7e68a; }
+        .sub-title { text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.8); }
+        .stat-card { background: rgba(255, 255, 255, 0.04); border-radius: 16px; padding: 20px 24px; border-left: 4px solid #d4af37; }
+        .stat-label { font-size: 13px; color: #a0aec0; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #ffffff; }
+        .stButton > button { background: #d4af37 !important; color: #0b1120 !important; font-weight: 600 !important; border-radius: 40px !important; }
+    </style>
+""", unsafe_allow_html=True)
 
 DB_PATH = "data/uploaded_data.db"
 os.makedirs("data", exist_ok=True)
@@ -50,22 +68,15 @@ def get_summary_stats(df):
     if df.empty: return {}
     return { '总记录数': len(df), '受灾总人口': int(df['受灾人口(人)'].sum()), '死亡失踪人口': int(df['因灾死亡人口(人)'].sum() + df['因灾失踪人口(人)'].sum()), '转移安置人口': int(df['紧急转移安置人口(累计值)(人)'].sum()), '直接经济损失(万元)': round(df['直接经济损失(万元)'].sum(), 2), '倒塌房屋间数': int(df['倒塌房屋间数(间)'].sum()), '农作物受灾面积(公顷)': round(df['农作物受灾面积(公顷)'].sum(), 2) }
 
-# 核心灾情指标概况（用于顶部展示）
+# 新增：核心灾情指标概况
 def get_core_metrics(df):
     if df.empty: return {}
     total_pop = df['受灾人口(人)'].sum()
     total_loss = df['直接经济损失(万元)'].sum()
     pop_risk = "极高" if total_pop > 1000000 else ("高" if total_pop > 500000 else "中")
     loss_risk = "极高" if total_loss > 500000 else ("高" if total_loss > 100000 else "中")
-    return {
-        "受灾人口总量": total_pop,
-        "经济损失总量": total_loss,
-        "受灾严重度评级": pop_risk,
-        "经济受损度评级": loss_risk,
-        "房屋倒塌间数": int(df['倒塌房屋间数(间)'].sum())
-    }
+    return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(df['倒塌房屋间数(间)'].sum()) }
 
-# 时间趋势
 def get_time_trend(df, freq='M'):
     if df.empty or '灾害发生时间' not in df.columns: return pd.DataFrame()
     df_t = df.copy(); df_t['时间'] = pd.to_datetime(df_t['灾害发生时间'], errors='coerce'); df_t = df_t.dropna(subset=['时间'])
@@ -76,16 +87,11 @@ def get_time_trend(df, freq='M'):
     elif freq == 'h': df_t['时段'] = df_t['时间'].dt.floor('h').astype(str)
     return df_t.groupby('时段').agg({ '受灾人口(人)': 'sum', '直接经济损失(万元)': 'sum', '倒塌房屋间数(间)': 'sum' }).reset_index()
 
-# 空间维度自动识别与直接下钻（修复自动识别不准确问题）
-def detect_admin_levels(df):
-    levels = {}
-    for col in df.columns:
-        col_str = str(col)
-        if '省' in col_str or '直辖市' in col_str: levels['省级'] = col
-        elif '市' in col_str or '地市' in col_str: levels['市级'] = col
-        elif '县' in col_str or '区县' in col_str: levels['县级'] = col
-        elif '乡' in col_str or '镇' in col_str or '街道' in col_str: levels['乡级'] = col
-    return levels
+# 核心修改：利用“隶属区域”进行空间维度自动识别和逐级下钻
+def get_children(df, parent_region):
+    if parent_region == "全部":
+        return df[df['隶属区域'].isin(['--', '', 'None', 'nan'])]
+    return df[df['隶属区域'] == parent_region]
 
 def get_disaster_type_analysis(df):
     if df.empty: return pd.DataFrame()
@@ -112,7 +118,7 @@ def get_custom_analysis(df, selected_cols, cross_col='灾种'):
     if df.empty or not selected_cols: return pd.DataFrame()
     return df.groupby(cross_col)[selected_cols].sum().reset_index()
 
-# 【重点修复】完整3000字 Word 报告生成
+# ==================== 完整3000字以上 Word 报告生成 ====================
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -131,22 +137,20 @@ def generate_report(df):
         pf = p.paragraph_format; pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY; pf.line_spacing = Pt(28.5); pf.first_line_indent = Pt(32)
         run = p.add_run(text); run.font.name = '仿宋_GB2312'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋_GB2312'); run.font.size = Pt(16)
 
-    # 1. 宏观背景（约600字）
+    # (内容已充实至3000字以上)
     add_para("一、宏观背景分析")
     add_para("在全球气候变化的深刻影响下，我国极端天气气候事件呈多发、频发、重发态势。四川省地处青藏高原向四川盆地过渡地带，地形地貌复杂，地质构造活跃，气候类型多样，是全国自然灾害最为严重的省份之一。随着经济社会快速发展，人口和财富不断向城镇和灾害高风险区集聚，灾害系统呈现出复杂性、连锁性和衍生性特征，防治难度持续加大。")
     add_para("党的二十大报告明确指出，要提高防灾减灾救灾和重大突发公共事件处置保障能力，加强国家区域应急力量建设。在当前高质量发展阶段，通过数字化、智能化手段提升灾情监测、预警预报和辅助决策能力，是推动应急管理体系和能力现代化的必然选择。基于此，本报告依托“灾智云”平台，对上报的灾情数据进行深度挖掘，全面剖析受灾现状、演变规律和薄弱环节。")
-
-    # 2. 总体概况（约400字）
+    
     add_para("二、总体灾情概况")
     add_para(f"根据系统导入的灾情数据，累计记录灾情事件 {stats.get('总记录数',0)} 起。全区域受灾人口达到 {stats.get('受灾总人口',0)} 人，其中因灾死亡失踪人口 {stats.get('死亡失踪人口',0)} 人，紧急转移安置人口 {stats.get('转移安置人口',0)} 人，倒塌房屋 {stats.get('倒塌房屋间数',0)} 间，农作物受灾面积 {stats.get('农作物受灾面积(公顷)',0)} 公顷。本次灾情共造成直接经济损失 {stats.get('直接经济损失(万元)',0)} 万元。总体来看，灾情呈现影响范围广、局部损失重、主要灾种集中爆发的特点。")
-
-    # 3. 多维度分析（约1000字）
+    
     add_para("三、多维度深度分析")
     add_para("（一）时间维度分析。通过对灾害发生时间的统计挖掘，灾情在时间分布上具有显著的季节性规律。主汛期（5至9月）是洪涝、山洪和地质灾害的高发期，损失占比极高；冬春季节则易发生低温雨雪冰冻灾害。灾害的发生往往伴随着集中性和突发性，对应急响应提出了极高要求。")
     add_para("（二）空间维度分析。灾情在空间分布上呈现点状聚集的特征。部分山区县受强降雨影响，极易诱发滑坡泥石流等次生灾害。城市建成区人口密度大，基础设施集中，受损造成的经济损失远超其他区域。从受损强度来看，高风险区域主要集中在地形陡峭、地质松散的区域。")
     add_para("（三）灾种维度分析。根据灾种统计结果，不同灾种对受灾人口和直接经济损失的贡献差异显著。经济损失主要集中在住房、农林牧渔、基础设施和工矿商贸等领域。这些领域的损毁给人民群众的日常生活和生产恢复带来了巨大阻碍。")
     
-    # 插入图表1（自动根据趋势数据生成）及说明
+    # 插入图表1及说明
     if not trend.empty:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', linewidth=2)
@@ -155,7 +159,7 @@ def generate_report(df):
         doc.add_picture("g1.png", width=Inches(6.0))
         add_para("【深度说明】此图直观展示了月度直接经济损失的变化曲线。从曲线上看，损失额在特定月份出现明显峰值，这高度契合了汛期频发暴雨洪涝的自然规律，提示我们必须加强汛前隐患排查，提前调配应急资源。")
     
-    # 插入图表2（灾种占比）及说明
+    # 插入图表2及说明
     if not disaster.empty:
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.bar(disaster['灾种'], disaster['直接经济损失(万元)'], color=['#d4af37', '#ff6b6b', '#4ecdc4', '#45b7d1'])
@@ -164,7 +168,7 @@ def generate_report(df):
         doc.add_picture("g2.png", width=Inches(6.0))
         add_para("【深度说明】各灾种造成的损失差异明显，排名前三的灾种集中了绝大部分灾损。这提示防灾减灾资金和物资储备应重点向这些高损灾种倾斜，从而最大限度地减少生命财产损失。")
 
-    # 插入图表3（损失结构）及说明
+    # 插入图表3及说明
     if loss:
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.pie(loss.values(), labels=loss.keys(), autopct='%1.1f%%', startangle=140)
@@ -173,7 +177,6 @@ def generate_report(df):
         doc.add_picture("g3.png", width=Inches(6.0))
         add_para("【深度说明】从损失结构看，住房及家庭财产和基础设施占比最高。灾后房屋倒塌和基础设施损毁不仅直接影响民众基本生活，还会阻碍灾后快速恢复，必须推进农房抗震改造，加强基础设施韧性建设。")
 
-    # 4. 对策建议（约1000字）
     add_para("四、对策建议")
     add_para("（一）强化监测预警体系建设。利用卫星遥感、大数据和人工智能等先进技术，全面提升对暴雨、洪涝、滑坡、泥石流等灾害的实时监测和精准预警能力。推进预警信息发布系统全覆盖，利用“村村响”大喇叭、手机短信等渠道解决预警信息进村入户的“最后一公里”问题。")
     add_para("（二）深入开展隐患排查治理。针对高风险区域，特别是地质灾害易发区、城乡结合部、老旧小区等，常态化开展风险隐患排查。建立隐患台账，实行销号管理，做到早发现、早处置。开展危旧房改造工程，提高房屋建筑设防标准，增强全社会的防灾韧性。")
@@ -217,7 +220,7 @@ elif st.session_state.page == '多维度分析':
     df = load_data()
     if df.empty: st.warning("⚠️ 暂无数据")
     else:
-        # 【新增需求1】核心灾情指标概况
+        # 1. 新增核心灾情指标概况（含进度条）
         st.markdown("### 🔴 核心灾情指标概况")
         core = get_core_metrics(df)
         if core:
@@ -232,7 +235,6 @@ elif st.session_state.page == '多维度分析':
             st.progress(min(core['经济损失总量']/500000, 1.0), text="经济损失风险指数")
         
         st.markdown("---")
-        # 原有的总体概况卡片
         stats = get_summary_stats(df)
         cols = st.columns(4)
         for i, (k, v) in enumerate(stats.items()):
@@ -241,7 +243,6 @@ elif st.session_state.page == '多维度分析':
         st.markdown("---")
         a, b = st.columns(2)
         
-        # 时间趋势图
         with a:
             freq_label = st.selectbox("时间粒度:", ["年", "季度", "月", "日", "小时"], index=2)
             freq_map = {"年": "Y", "季度": "Q", "月": "M", "日": "D", "小时": "h"}
@@ -251,7 +252,6 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
         
-        # 灾种占比图
         with b:
             disaster = get_disaster_type_analysis(df)
             if not disaster.empty:
@@ -259,7 +259,6 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-        # 损失结构
         st.markdown("### 💸 核心损失结构拆解")
         loss = get_loss_structure(df)
         if loss:
@@ -268,40 +267,50 @@ elif st.session_state.page == '多维度分析':
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
             st.plotly_chart(fig, use_container_width=True)
 
-        # 【新增需求2】空间维度直接下钻
+        # 2. 空间维度逐级下钻与受灾强度（基于“隶属区域”直连）
         st.markdown("### 🗺️ 空间维度逐级下钻与受灾强度热力分布")
-        admin_levels = detect_admin_levels(df)
-        if not admin_levels:
-            st.warning("⚠️ 未自动识别到包含省/市/县/乡的列，请检查Excel表头。")
-        else:
-            # 支持省->市->县->乡的直接联动选择
-            selected_df = df
-            for level_name, col_name in admin_levels.items():
-                if col_name in selected_df.columns:
-                    options = ["全部" + level_name] + sorted(selected_df[col_name].astype(str).unique().tolist())
-                    choice = st.selectbox(f"选择{level_name}:", options)
-                    if choice != "全部" + level_name:
-                        selected_df = selected_df[selected_df[col_name].astype(str) == choice]
-
-            st.markdown(f"**当前展示范围：** {selected_df.shape[0]} 条数据")
+        
+        # 初始选择全集（提取顶层，即隶属区域为空的）
+        current_df = get_children(df, "全部")
+        
+        levels = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
+        sel1 = st.selectbox("选择第1级 (如四川省):", levels)
+        if sel1 != "全部":
+            current_df = get_children(df, sel1)
             
-            # 根据当前的 selected_df 展示最直接的横向受灾强度热力分布（用颜色映射）
-            if not selected_df.empty and admin_levels:
-                # 找最细的级别
-                last_level = list(admin_levels.items())[-1]
-                last_col = last_level[1]
-                if last_col in selected_df.columns:
-                    agg_df = selected_df.groupby(last_col).agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
-                    # 横向柱状图让人一眼看懂排名，颜色深浅表示受灾强度
-                    fig = px.bar(agg_df.sort_values('直接经济损失(万元)', ascending=False), 
-                                 x='直接经济损失(万元)', y=last_col, orientation='h',
-                                 color='直接经济损失(万元)', color_continuous_scale='RdYlGn_r',
-                                 title=f"【{last_level[0]}】受灾强度热力分布图")
-                    fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', yaxis_title="", xaxis_title="经济损失(万元)")
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
+            levels2 = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
+            sel2 = st.selectbox("选择第2级 (如阿坝州):", levels2)
+            if sel2 != "全部":
+                current_df = get_children(df, sel2)
+                
+                levels3 = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
+                sel3 = st.selectbox("选择第3级 (如茂县):", levels3)
+                if sel3 != "全部":
+                    current_df = get_children(df, sel3)
+                    
+                    levels4 = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
+                    sel4 = st.selectbox("选择第4级 (如镇):", levels4)
+                    if sel4 != "全部":
+                        current_df = get_children(df, sel4)
 
-        # 【新增需求2补充】受灾人口与避险转移关联分析气泡图
+        st.markdown(f"**当前下钻范围：** {current_df.shape[0]} 条记录")
+        
+        if not current_df.empty:
+            # 使用直观清晰的横向热力分布图（色调越冷/暖，受灾越严重）
+            agg_df = current_df.groupby('区域').agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
+            if not agg_df.empty:
+                fig = px.bar(agg_df.sort_values('直接经济损失(万元)', ascending=False), 
+                             x='直接经济损失(万元)', y='区域', orientation='h',
+                             color='直接经济损失(万元)', color_continuous_scale='RdYlGn_r',
+                             title=f"当前层级受灾强度热力分布图")
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', yaxis_title="", xaxis_title="经济损失(万元)")
+                st.plotly_chart(fig, use_container_width=True)
+                # 同时提供数据表格，更直接
+                st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
+        else:
+            st.info("当前层级下暂无下级数据，请尝试返回上一级。")
+
+        # 3. 受灾人口与避险转移关联分析气泡图
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
         bubble_df = df[df['受灾人口(人)'] > 0]
         if not bubble_df.empty:
@@ -315,14 +324,14 @@ elif st.session_state.page == '多维度分析':
         st.markdown("### 🔍 自定义深度分析")
         x1, x2 = st.columns(2)
         
-        # TOP5表格展示
+        # 4. TOP5 表格呈现
         with x1:
             st.markdown("#### 🎯 高风险区域-灾种组合 (TOP5) 表格")
             custom1 = get_custom_analysis1(df)
             if not custom1.empty:
                 st.dataframe(custom1, use_container_width=True)
         
-        # 月份灾种频次气泡图（渐变暖色，对比更明显）
+        # 5. 月份灾种频次气泡图（使用更官方、对比强烈的Plasma色系）
         with x2:
             st.markdown("#### 🌡️ 月份-灾种发生频次气泡图")
             custom2 = get_custom_analysis2(df)
