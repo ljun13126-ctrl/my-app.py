@@ -13,6 +13,7 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
+# 全局设置
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -167,7 +168,7 @@ def generate_report(df):
 
     file_stream = io.BytesIO()
     doc.save(file_stream); file_stream.seek(0)
-    return file_stream# ==================== 页面导航 ====================
+    return file_stream# ==================== 页面导航（强制金黄色样式） ====================
 if 'page' not in st.session_state: st.session_state.page = '首页'
 
 def set_page(page_name): st.session_state.page = page_name
@@ -182,17 +183,31 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页 ====================
+# ==================== 首页（修复排版错位，标题改为灾智云） ====================
 if st.session_state.page == '首页':
-    # 引入体现“数智应急”的科技感视觉效果（雷达扫描、AI、数据流等）
     st.markdown("""
         <style>
+            /* 四个导航模块强制金黄色 */
+            .stButton > button {
+                background-color: #d4af37 !important;
+                color: #0b1120 !important;
+                font-weight: 600 !important;
+                border: 1px solid #d4af37 !important;
+                border-radius: 40px !important;
+                transition: 0.3s;
+            }
+            .stButton > button:hover {
+                background-color: #f7e68a !important;
+                color: #0b1120 !important;
+                border-color: #f7e68a !important;
+            }
+
             .hero-banner {
                 background: linear-gradient(135deg, rgba(11,17,32,0.9) 0%, rgba(22,42,74,0.9) 100%);
                 border: 1px solid rgba(212,175,55,0.3);
                 border-radius: 20px;
                 padding: 40px;
-                margin-bottom: 20px;
+                margin-bottom: 30px;
                 text-align: center;
             }
             .hero-title {
@@ -201,17 +216,44 @@ if st.session_state.page == '首页':
                 background: -webkit-linear-gradient(#d4af37, #f7e68a);
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
-                margin-bottom: 10px;
+                margin-bottom: 20px;
             }
-            .hero-sub {
-                font-size: 18px;
-                color: rgba(255,255,255,0.8);
-                margin-bottom: 30px;
+            .radar-wrap {
+                margin: 0 auto 30px auto;
+                width: 200px;
+                height: 200px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .radar {
+                width: 100%;
+                height: 100%;
+                border: 2px solid rgba(78,205,196,0.5);
+                border-radius: 50%;
+                box-shadow: 0 0 40px rgba(78,205,196,0.3);
+                animation: pulse 2s infinite;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 80px;
+            }
+            @keyframes pulse {
+                0% { transform: scale(0.95); opacity: 0.8; }
+                50% { transform: scale(1.05); opacity: 1; }
+                100% { transform: scale(0.95); opacity: 0.8; }
+            }
+            
+            /* Flex弹性布局防止错位与报错 */
+            .modules-row {
+                display: flex;
+                justify-content: space-between;
+                gap: 15px;
+                flex-wrap: wrap;
             }
             .module-card {
-                display: inline-block;
-                width: 22%;
-                margin: 0 1%;
+                flex: 1;
+                min-width: 150px;
                 padding: 20px;
                 border: 1px solid rgba(212,175,55,0.2);
                 border-radius: 12px;
@@ -224,36 +266,16 @@ if st.session_state.page == '首页':
                 border-color: #d4af37;
                 background: rgba(212,175,55,0.1);
             }
-            .radar {
-                margin: 0 auto 20px auto;
-                width: 200px;
-                height: 200px;
-                border: 2px solid rgba(78,205,196,0.5);
-                border-radius: 50%;
-                box-shadow: 0 0 40px rgba(78,205,196,0.3);
-                position: relative;
-                animation: pulse 2s infinite;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 80px;
-            }
-            @keyframes pulse {
-                0% { transform: scale(0.95); opacity: 0.8; }
-                50% { transform: scale(1.05); opacity: 1; }
-                100% { transform: scale(0.95); opacity: 0.8; }
-            }
         </style>
         
         <div class="hero-banner">
-            <div class="hero-title">☁️ 灾智云 · 数智应急引擎</div>
-            <div class="hero-sub">科技赋能应急 · 智能守护生命</div>
+            <div class="hero-title">☁️ 灾智云</div>
             
-            <div class="radar">
-                🛰️
+            <div class="radar-wrap">
+                <div class="radar">🛰️</div>
             </div>
             
-            <div>
+            <div class="modules-row">
                 <div class="module-card">
                     <div style="font-size: 40px; color: #d4af37;">🤖</div>
                     <div style="font-size: 16px; margin-top: 10px; color: #fff;">AI智能研判</div>
@@ -296,7 +318,6 @@ elif st.session_state.page == '多维度分析':
     if df.empty: 
         st.warning("⚠️ 暂无数据，请先在【数据导入】页面上传Excel。")
     else:
-        # 核心指标概况
         st.markdown("### 🔴 核心灾情指标概况")
         core = get_core_metrics(df)
         if core:
@@ -321,7 +342,6 @@ elif st.session_state.page == '多维度分析':
         st.markdown("---")
         a, b = st.columns(2)
         
-        # 时间趋势分析
         with a:
             st.markdown("#### 📈 时间趋势")
             freq_label = st.selectbox("时间粒度:", ["年", "季度", "月", "日", "小时"], index=2)
@@ -341,7 +361,6 @@ elif st.session_state.page == '多维度分析':
                         </div>
                     """, unsafe_allow_html=True)
         
-        # 灾种占比
         with b:
             st.markdown("#### 🥧 灾种损失占比")
             disaster = get_disaster_type_analysis(df)
@@ -370,7 +389,6 @@ elif st.session_state.page == '多维度分析':
                 </div>
             """, unsafe_allow_html=True)
 
-        # 空间维度下钻
         st.markdown("### 🗺️ 空间维度逐级下钻与受灾强度热力分布")
         current_df = get_children(df, "全部")
         levels = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
@@ -385,7 +403,6 @@ elif st.session_state.page == '多维度分析':
                 st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
 
-        # 气泡图
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
         bubble_df = df[df['受灾人口(人)'] > 0]
         if not bubble_df.empty:
