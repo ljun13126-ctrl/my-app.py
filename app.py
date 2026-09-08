@@ -658,12 +658,20 @@ elif st.session_state.page == '多维度分析':
                     st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
 
-        # 修改气泡图背景为白色
+        # 修改气泡图背景为白色，文字加粗黑体
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
         bubble_df = df[df['受灾人口(人)'] > 0] if '受灾人口(人)' in df.columns else pd.DataFrame()
         if not bubble_df.empty:
             fig = px.scatter(bubble_df, x="受灾人口(人)", y="紧急转移安置人口(累计值)(人)", size="直接经济损失(万元)", color="灾种", hover_name="区域", title="受灾与避险转移关联分析", color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='black')
+            fig.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'),
+                title=dict(font=dict(family='SimHei, Arial, sans-serif', size=18, color='black')),
+                xaxis=dict(title_font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'), tickfont=dict(family='SimHei, Arial, sans-serif', size=12, color='black')),
+                yaxis=dict(title_font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'), tickfont=dict(family='SimHei, Arial, sans-serif', size=12, color='black')),
+                legend=dict(font=dict(family='SimHei, Arial, sans-serif', size=12, color='black'))
+            )
             st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 🔍 自定义深度分析")
@@ -679,8 +687,16 @@ elif st.session_state.page == '多维度分析':
             if not custom2.empty:
                 melt_df = custom2.melt(id_vars='月份', var_name='灾种', value_name='频次')
                 fig = px.scatter(melt_df, x="月份", y="灾种", size="频次", color="频次", color_continuous_scale=px.colors.sequential.Plasma, title="月份与灾种发生频次分布")
-                # 修改背景为白色
-                fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='black')
+                # 修改背景为白色，文字加粗黑体
+                fig.update_layout(
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'),
+                    title=dict(font=dict(family='SimHei, Arial, sans-serif', size=18, color='black')),
+                    xaxis=dict(title_font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'), tickfont=dict(family='SimHei, Arial, sans-serif', size=12, color='black')),
+                    yaxis=dict(title_font=dict(family='SimHei, Arial, sans-serif', size=14, color='black'), tickfont=dict(family='SimHei, Arial, sans-serif', size=12, color='black')),
+                    legend=dict(font=dict(family='SimHei, Arial, sans-serif', size=12, color='black'))
+                )
                 st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("#### 🧬 自由勾选任意灾损指标交叉分析")
