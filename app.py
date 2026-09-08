@@ -57,31 +57,114 @@ def init_db():
 init_db()
 
 def load_data():
-    conn = sqlite3.connect(DB_PATH); df = pd.read_sql_query("SELECT * FROM disaster_data", conn); conn.close(); return df
-
-def save_data(df):
-    conn = sqlite3.connect(DB_PATH); df.to_sql('disaster_data', conn, if_exists='replace', index=False); conn.close()
-
-def clean_data(df):
-    df = df.fillna({ '受灾人口(人)': 0, '因灾死亡人口(人)': 0, '因灾失踪人口(人)': 0, '紧急避险转移人口(人)': 0, '紧急转移安置人口(累计值)(人)': 0, '需紧急生活救助人口(累计值)(人)': 0, '倒塌房屋间数(间)': 0, '倒塌住房户数(户)': 0, '严重损坏房屋间数(间)': 0, '严重损坏住房户数(户)': 0, '一般损坏房屋间数(间)': 0, '一般损坏住房户数(户)': 0, '农作物受灾面积(公顷)': 0.0, '农作物绝收面积(公顷)': 0.0, '直接经济损失(万元)': 0.0, '其中：住房及居民家庭财产损失(万元)': 0.0, '农林牧渔业损失(万元)': 0.0, '工矿商贸业损失(万元)': 0.0, '基础设施损失(万元)': 0.0, '公共服务损失(万元)': 0.0, '其他损失(万元)': 0.0 })
-    num_cols = df.select_dtypes(include=['number']).columns
-    for col in num_cols:
-        df[col] = df[col].apply(lambda x: max(x, 0) if isinstance(x, (int, float)) else x)
-    if '灾害发生时间' in df.columns:
-        df['灾害发生时间'] = pd.to_datetime(df['灾害发生时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-    for col in ['区域', '隶属区域']:
-        if col in df.columns: df[col] = df[col].fillna('--')
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql_query("SELECT * FROM disaster_data", conn)
+    finally:
+        conn.close()
     return df
 
-# 【全量安全防护】统一安全读取列
+def save_data(df):
+    conn = sqlite3.connect(DB_PATH)
+    df.to_sql('disaster_data', conn, if_exists='replace', index=False)
+    conn.close()
+
+# ---------- 列名标准化映射 ----------
+COLUMN_MAPPING = {
+    '区域': ['区域', '地区', '行政区', 'region', 'Region'],
+    '灾种': ['灾种', '灾害类型', 'disaster_type', 'Disaster Type'],
+    '隶属区域': ['隶属区域', '隶属', '上级区域', 'parent_region', 'Parent Region'],
+    '灾害发生时间': ['灾害发生时间', '发生时间', '时间', 'disaster_time', 'Time'],
+    '受灾人口(人)': ['受灾人口(人)', '受灾人口', '受灾人数(人)', 'affected_population', 'Affected Population'],
+    '因灾死亡人口(人)': ['因灾死亡人口(人)', '因灾死亡人口', '死亡人口(人)', 'death_population', 'Death Population'],
+    '因灾失踪人口(人)': ['因灾失踪人口(人)', '因灾失踪人口', '失踪人口(人)', 'missing_population', 'Missing Population'],
+    '紧急避险转移人口(人)': ['紧急避险转移人口(人)', '紧急避险转移人口', 'emergency_evacuation', 'Emergency Evacuation'],
+    '紧急转移安置人口(累计值)(人)': ['紧急转移安置人口(累计值)(人)', '紧急转移安置人口', '紧急转移安置(人)', 'emergency_relocation', 'Emergency Relocation'],
+    '需紧急生活救助人口(累计值)(人)': ['需紧急生活救助人口(累计值)(人)', '需紧急生活救助人口', 'emergency_life_aid', 'Emergency Life Aid'],
+    '倒塌房屋间数(间)': ['倒塌房屋间数(间)', '倒塌房屋间数', 'collapsed_houses', 'Collapsed Houses'],
+    '倒塌住房户数(户)': ['倒塌住房户数(户)', '倒塌住房户数', 'collapsed_households', 'Collapsed Households'],
+    '严重损坏房屋间数(间)': ['严重损坏房屋间数(间)', '严重损坏房屋间数', 'severe_damaged_houses', 'Severely Damaged Houses'],
+    '严重损坏住房户数(户)': ['严重损坏住房户数(户)', '严重损坏住房户数', 'severe_damaged_households', 'Severely Damaged Households'],
+    '一般损坏房屋间数(间)': ['一般损坏房屋间数(间)', '一般损坏房屋间数', 'moderate_damaged_houses', 'Moderately Damaged Houses'],
+    '一般损坏住房户数(户)': ['一般损坏住房户数(户)', '一般损坏住房户数', 'moderate_damaged_households', 'Moderately Damaged Households'],
+    '农作物受灾面积(公顷)': ['农作物受灾面积(公顷)', '农作物受灾面积', 'crop_area_affected', 'Crop Area Affected'],
+    '农作物绝收面积(公顷)': ['农作物绝收面积(公顷)', '农作物绝收面积', 'crop_area_no_harvest', 'Crop Area No Harvest'],
+    '直接经济损失(万元)': ['直接经济损失(万元)', '直接经济损失', 'direct_economic_loss', 'Direct Economic Loss'],
+    '其中：住房及居民家庭财产损失(万元)': ['其中：住房及居民家庭财产损失(万元)', '住房及居民家庭财产损失', 'housing_loss', 'Housing Loss'],
+    '农林牧渔业损失(万元)': ['农林牧渔业损失(万元)', '农林牧渔业损失', 'agri_loss', 'Agricultural Loss'],
+    '工矿商贸业损失(万元)': ['工矿商贸业损失(万元)', '工矿商贸业损失', 'industry_loss', 'Industry Loss'],
+    '基础设施损失(万元)': ['基础设施损失(万元)', '基础设施损失', 'infrastructure_loss', 'Infrastructure Loss'],
+    '公共服务损失(万元)': ['公共服务损失(万元)', '公共服务损失', 'public_service_loss', 'Public Service Loss'],
+    '其他损失(万元)': ['其他损失(万元)', '其他损失', 'other_loss', 'Other Loss']
+}
+
+def normalize_column_name(col):
+    """将列名标准化为统一中文列名"""
+    if col in COLUMN_MAPPING:
+        return col
+    for standard, aliases in COLUMN_MAPPING.items():
+        if col in aliases:
+            return standard
+    # 尝试去除空格和全角括号后匹配
+    clean_col = str(col).replace('（', '(').replace('）', ')').replace(' ', '')
+    for standard, aliases in COLUMN_MAPPING.items():
+        clean_std = standard.replace('（', '(').replace('）', ')').replace(' ', '')
+        if clean_col == clean_std:
+            return standard
+        for alias in aliases:
+            clean_alias = str(alias).replace('（', '(').replace('）', ')').replace(' ', '')
+            if clean_col == clean_alias:
+                return standard
+    return col
+
+def clean_data(df):
+    """清洗数据：标准化列名、处理缺失值、过滤合计行"""
+    # 1. 标准化列名
+    rename_map = {}
+    for col in df.columns:
+        std = normalize_column_name(col)
+        rename_map[col] = std
+    df = df.rename(columns=rename_map)
+
+    # 2. 过滤“合计”行和空行
+    if '区域' in df.columns:
+        df = df[~df['区域'].astype(str).str.strip().isin(['合计', '合计：', '总计', '--', '', 'nan', 'None'])]
+        df = df[df['区域'].astype(str).str.strip() != '']
+
+    # 3. 填充数值列的NaN为0
+    num_cols = [col for col in df.columns if any(x in col for x in ['(人)', '(万元)', '(间)', '(户)', '(公顷)'])]
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
+
+    # 4. 确保字符串列存在
+    for col in ['区域', '灾种', '隶属区域']:
+        if col not in df.columns:
+            df[col] = '--'
+        else:
+            df[col] = df[col].fillna('--').astype(str)
+
+    # 5. 处理时间列
+    if '灾害发生时间' in df.columns:
+        df['灾害发生时间'] = pd.to_datetime(df['灾害发生时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+    else:
+        df['灾害发生时间'] = None
+
+    return df.reset_index(drop=True)
+
+# ---------- 安全读取列 ----------
 def safe_get_col(df, col_name, default=0):
+    if df.empty:
+        return pd.Series([default] * len(df))
     if col_name in df.columns:
         return df[col_name]
+    # 尝试模糊匹配
     for c in df.columns:
         if str(c).replace('（', '(').replace('）', ')').replace(' ', '') == col_name.replace(' ', ''):
             return df[c]
     return pd.Series([default] * len(df))
 
+# ---------- 核心指标计算 ----------
 def get_core_metrics(df):
     if df.empty: return {}
     total_pop = safe_get_col(df, '受灾人口(人)').sum()
@@ -176,10 +259,8 @@ def get_alert_level(df):
     elif pop > 100000 or loss > 5000: return "黄色预警", "中等"
     else: return "蓝色预警", "一般"
 
-# 【修复报错核心】允许找不到区域列时直接返回空，防止崩溃
 def get_region_radar(df):
     if df.empty: return pd.DataFrame()
-    # 检查所有需要的列是否存在，不存在直接返回空
     required_cols = ['区域', '受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']
     if not all(col in df.columns for col in required_cols):
         return pd.DataFrame()
@@ -189,7 +270,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# 5000字以上17章节完整报告生成函数
+# ---------- 报告生成（保留原有逻辑，无需修改） ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -356,7 +437,9 @@ def generate_report(df):
 
     file_stream = io.BytesIO()
     doc.save(file_stream); file_stream.seek(0)
-    return file_stream# ==================== 全局高级商业UI样式 ====================
+    return file_stream
+
+# ==================== 全局高级商业UI样式 ====================
 st.markdown("""
     <style>
         .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
@@ -396,15 +479,21 @@ elif st.session_state.page == '数据导入':
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
     if uploaded_file is not None:
         try:
-            df_clean = clean_data(pd.read_excel(uploaded_file, skiprows=1))
+            # 读取Excel，不跳过任何行，让clean_data处理
+            raw_df = pd.read_excel(uploaded_file, header=0)
+            df_clean = clean_data(raw_df)
             save_data(df_clean)
-            st.success(f"✅ 上传成功，共 {len(df_clean)} 条记录。")
-        except Exception as e: st.error(f"❌ 读取失败: {str(e)}")
+            st.success(f"✅ 上传成功，共 {len(df_clean)} 条有效记录。")
+            st.dataframe(df_clean.head(10))
+        except Exception as e:
+            st.error(f"❌ 读取失败: {str(e)}")
 
 # ==================== 综合分析 ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df = load_data()
+    # 再次清洗数据，确保列名正确
+    df = clean_data(df)
     if df.empty: 
         st.warning("⚠️ 暂无数据，请先在【数据导入】页面上传Excel。")
     else:
@@ -529,19 +618,26 @@ elif st.session_state.page == '多维度分析':
 
         st.markdown("### 🗺️ 空间维度逐级下钻与受灾强度热力分布")
         current_df = get_children(df, "全部")
-        levels = ["全部"] + sorted(current_df['区域'].astype(str).unique().tolist())
+        # 修复：安全获取区域列
+        if '区域' in current_df.columns:
+            levels = ["全部"] + sorted([str(x) for x in current_df['区域'].astype(str).unique() if str(x).strip() not in ['', 'nan', 'None', '--']])
+        else:
+            levels = ["全部"]
         sel1 = st.selectbox("选择第1级:", levels)
         if sel1 != "全部": current_df = get_children(df, sel1)
         if not current_df.empty:
-            agg_df = current_df.groupby('区域').agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
-            if not agg_df.empty:
-                fig = px.bar(agg_df.sort_values('直接经济损失(万元)', ascending=False), x='直接经济损失(万元)', y='区域', orientation='h', color='直接经济损失(万元)', color_continuous_scale='RdYlGn_r', title=f"当前层级受灾强度热力分布图")
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', yaxis_title="")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
+            if '区域' in current_df.columns:
+                agg_df = current_df.groupby('区域').agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
+                if not agg_df.empty:
+                    fig = px.bar(agg_df.sort_values('直接经济损失(万元)', ascending=False), x='直接经济损失(万元)', y='区域', orientation='h', color='直接经济损失(万元)', color_continuous_scale='RdYlGn_r', title=f"当前层级受灾强度热力分布图")
+                    fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', yaxis_title="")
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
+            else:
+                st.info("当前数据无区域列，无法进行下钻分析。")
 
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
-        bubble_df = df[df['受灾人口(人)'] > 0]
+        bubble_df = df[df['受灾人口(人)'] > 0] if '受灾人口(人)' in df.columns else pd.DataFrame()
         if not bubble_df.empty:
             fig = px.scatter(bubble_df, x="受灾人口(人)", y="紧急转移安置人口(累计值)(人)", size="直接经济损失(万元)", color="灾种", hover_name="区域", title="受灾与避险转移关联分析", color_discrete_sequence=px.colors.qualitative.Pastel)
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
@@ -566,7 +662,7 @@ elif st.session_state.page == '多维度分析':
         st.markdown("#### 🧬 自由勾选任意灾损指标交叉分析")
         numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
         cross_dim = st.selectbox("选择交叉维度:", ['灾种'] + [c for c in df.columns if c not in numeric_cols])
-        selected_metrics = st.multiselect("自由勾选指标:", numeric_cols, default=numeric_cols[:3])
+        selected_metrics = st.multiselect("自由勾选指标:", numeric_cols, default=numeric_cols[:3] if numeric_cols else [])
         if selected_metrics:
             custom_data = get_custom_analysis(df, selected_metrics, cross_dim)
             if not custom_data.empty:
@@ -579,9 +675,12 @@ elif st.session_state.page == '多维度分析':
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df = load_data()
+    df = clean_data(df)
     if df.empty: st.warning("⚠️ 暂无数据")
     else:
         if st.button("🚀 生成并下载报告 (Word)", use_container_width=True):
-            with st.spinner("正在生成深度报告中..."): st.download_button("📥 点击下载报告", data=generate_report(df), file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
+            with st.spinner("正在生成深度报告中..."): 
+                report = generate_report(df)
+                st.download_button("📥 点击下载报告", data=report, file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
 
 st.markdown("""<div style="text-align: center; color: rgba(255, 255, 255, 0.25); padding: 24px 0; border-top: 1px solid rgba(255, 255, 255, 0.05); margin-top: 40px; font-size: 14px;">© 2026 灾智云 · 数智应急赋能平台</div>""", unsafe_allow_html=True)
