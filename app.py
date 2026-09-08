@@ -105,7 +105,6 @@ def normalize_column_name(col):
     for standard, aliases in COLUMN_MAPPING.items():
         if col in aliases:
             return standard
-    # 尝试去除空格和全角括号后匹配
     clean_col = str(col).replace('（', '(').replace('）', ')').replace(' ', '')
     for standard, aliases in COLUMN_MAPPING.items():
         clean_std = standard.replace('（', '(').replace('）', ')').replace(' ', '')
@@ -126,10 +125,13 @@ def clean_data(df):
         rename_map[col] = std
     df = df.rename(columns=rename_map)
 
-    # 2. 过滤“合计”行和空行
+    # 2. 过滤“合计”行和空行（解决数据翻倍问题）
     if '区域' in df.columns:
-        df = df[~df['区域'].astype(str).str.strip().isin(['合计', '合计：', '总计', '--', '', 'nan', 'None'])]
-        df = df[df['区域'].astype(str).str.strip() != '']
+        df['区域'] = df['区域'].astype(str)
+        # 过滤包含“合计”的行
+        df = df[~df['区域'].str.contains('合计', na=False)]
+        # 过滤空行、"--"、“nan”等
+        df = df[~df['区域'].str.strip().isin(['', '--', 'nan', 'None', '-'])]
 
     # 3. 填充数值列的NaN为0
     num_cols = [col for col in df.columns if any(x in col for x in ['(人)', '(万元)', '(间)', '(户)', '(公顷)'])]
@@ -158,7 +160,6 @@ def safe_get_col(df, col_name, default=0):
         return pd.Series([default] * len(df))
     if col_name in df.columns:
         return df[col_name]
-    # 尝试模糊匹配
     for c in df.columns:
         if str(c).replace('（', '(').replace('）', ')').replace(' ', '') == col_name.replace(' ', ''):
             return df[c]
@@ -246,10 +247,12 @@ def calc_resource_needs(df):
     return pd.DataFrame(need)
 
 def get_yoy_compare(df):
+    """动态化：根据当前数据集展示数据"""
     if df.empty or '灾害发生时间' not in df.columns: return "数据不足，无法对比"
     df_t = df.copy(); df_t['时间'] = pd.to_datetime(df_t['灾害发生时间'], errors='coerce'); df_t = df_t.dropna(subset=['时间'])
-    current_loss = df_t['直接经济损失(万元)'].sum()
-    return {"当前损失": current_loss, "对比说明": "与历史基线对比，损失处于高位（数据样本较少，仅供宏观参考）"}
+    current_loss = round(df_t['直接经济损失(万元)'].sum(), 2)
+    current_pop = int(df_t['受灾人口(人)'].sum())
+    return {"当前总损失": current_loss, "当前总受灾人口": current_pop, "对比说明": "该数据基于当前导入的Excel明细自动计算（不含合计行），仅作为宏观参考"}
 
 def get_alert_level(df):
     stats = get_summary_stats(df)
@@ -270,7 +273,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ---------- 报告生成（保留原有逻辑，无需修改） ----------
+# ---------- 报告生成（逻辑不变） ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -479,7 +482,6 @@ elif st.session_state.page == '数据导入':
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
     if uploaded_file is not None:
         try:
-            # 读取Excel，不跳过任何行，让clean_data处理
             raw_df = pd.read_excel(uploaded_file, header=0)
             df_clean = clean_data(raw_df)
             save_data(df_clean)
@@ -492,8 +494,7 @@ elif st.session_state.page == '数据导入':
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df = load_data()
-    # 再次清洗数据，确保列名正确
-    df = clean_data(df)
+    df = clean_data(df)  # 确保再次清洗
     if df.empty: 
         st.warning("⚠️ 暂无数据，请先在【数据导入】页面上传Excel。")
     else:
@@ -506,9 +507,18 @@ elif st.session_state.page == '多维度分析':
             with m3: st.metric("倒塌房屋", f"{core['房屋倒塌间数']:,} 间")
             with m4: st.metric("受灾风险评级", core['受灾严重度评级'])
             with m5: st.metric("经济受损评级", core['经济受损度评级'])
-            st.markdown("""
+            # 决策建议动态化
+            total_pop = core['受灾人口总量']
+            total_loss = core['经济损失总量']
+            houses = core['房屋倒塌间数']
+            suggestions = []
+            if total_pop > 100000: suggestions.append("立即启动大规模人员疏散和安置预案")
+            if total_loss > 10000: suggestions.append("调配专项资金并启动灾后重建补偿机制")
+            if houses > 100: suggestions.append("重点关注房屋倒塌区域的灾后安置工作")
+            if not suggestions: suggestions.append("密切关注灾情发展，保持应急响应状态")
+            st.markdown(f"""
                 <div class="insight-box">
-                    <b>💡 决策建议：</b> 建议立即启动应急响应机制，重点对人口密集区进行疏散，并优先保障房屋倒塌区域的灾后安置工作。
+                    <b>💡 动态决策建议：</b> {'；'.join(suggestions)}。
                 </div>
             """, unsafe_allow_html=True)
 
@@ -557,7 +567,8 @@ elif st.session_state.page == '多维度分析':
         st.markdown("### ⏳ 历史同期对比分析")
         yoy = get_yoy_compare(df)
         if isinstance(yoy, dict):
-            st.metric("当前总损失", f"{yoy['当前损失']} 万元")
+            st.metric("当前总损失", f"{yoy['当前总损失']} 万元")
+            st.metric("当前总受灾人口", f"{yoy['当前总受灾人口']} 人")
             st.info(yoy['对比说明'])
         else:
             st.info(yoy)
@@ -579,10 +590,12 @@ elif st.session_state.page == '多维度分析':
                 fig = px.line(trend, x='时段', y='受灾人口(人)', title=f"受灾人口{freq_label}度变化", markers=True)
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
-                st.markdown("""
+                # 动态化建议
+                max_pop_row = trend.loc[trend['受灾人口(人)'].idxmax()]
+                st.markdown(f"""
                     <div class="insight-box">
-                        <b>🎯 问题重心：</b> 受灾人口随时间波动明显，需加强持续性监测。<br>
-                        <b>🛠️ 解决方案：</b> 实施“防汛抗旱”双线并举，在灾情高发期到来前完成应急物资前置储备。
+                        <b>🎯 问题重心：</b> 受灾人口在 {max_pop_row['时段']} 达到峰值，需加强持续性监测。<br>
+                        <b>🛠️ 解决方案：</b> 在灾情高发期到来前完成应急物资前置储备。
                     </div>
                 """, unsafe_allow_html=True)
         
@@ -590,12 +603,24 @@ elif st.session_state.page == '多维度分析':
             st.markdown("#### 🥧 灾种损失占比")
             disaster = get_disaster_type_analysis(df)
             if not disaster.empty:
+                # 处理极小的数据标签：将占比小于1%的合并为“其他”
+                total_loss = disaster['直接经济损失(万元)'].sum()
+                disaster['占比'] = disaster['直接经济损失(万元)'] / total_loss * 100
+                others = disaster[disaster['占比'] < 1]
+                main = disaster[disaster['占比'] >= 1]
+                if not others.empty:
+                    other_row = pd.DataFrame([{'灾种': '其他', '直接经济损失(万元)': others['直接经济损失(万元)'].sum(), '占比': others['占比'].sum()}])
+                    disaster = pd.concat([main, other_row], ignore_index=True)
+
                 fig = px.pie(disaster, values='直接经济损失(万元)', names='灾种', title="各灾种经济损失占比", color_discrete_sequence=['#d4af37', '#ff6b6b', '#4ecdc4', '#45b7d1', '#a29bfe'])
+                fig.update_traces(textposition='inside', textinfo='percent', textfont_size=12)  # 隐藏小数据标签
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
-                st.markdown("""
+                
+                top_disaster_name = disaster.loc[disaster['直接经济损失(万元)'].idxmax(), '灾种']
+                st.markdown(f"""
                     <div class="insight-box">
-                        <b>🎯 问题重心：</b> 识别出造成损失的核心灾种，确保资金投入精准化。<br>
+                        <b>🎯 问题重心：</b> 识别出造成损失的核心灾种【{top_disaster_name}】，确保资金投入精准化。<br>
                         <b>🛠️ 解决方案：</b> 对排名前二的灾种建立重点防御工程，提升防洪排涝标准。
                     </div>
                 """, unsafe_allow_html=True)
@@ -618,7 +643,6 @@ elif st.session_state.page == '多维度分析':
 
         st.markdown("### 🗺️ 空间维度逐级下钻与受灾强度热力分布")
         current_df = get_children(df, "全部")
-        # 修复：安全获取区域列
         if '区域' in current_df.columns:
             levels = ["全部"] + sorted([str(x) for x in current_df['区域'].astype(str).unique() if str(x).strip() not in ['', 'nan', 'None', '--']])
         else:
@@ -633,14 +657,13 @@ elif st.session_state.page == '多维度分析':
                     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', yaxis_title="")
                     st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
-            else:
-                st.info("当前数据无区域列，无法进行下钻分析。")
 
+        # 修改气泡图背景为白色
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
         bubble_df = df[df['受灾人口(人)'] > 0] if '受灾人口(人)' in df.columns else pd.DataFrame()
         if not bubble_df.empty:
             fig = px.scatter(bubble_df, x="受灾人口(人)", y="紧急转移安置人口(累计值)(人)", size="直接经济损失(万元)", color="灾种", hover_name="区域", title="受灾与避险转移关联分析", color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
+            fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='black')
             st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 🔍 自定义深度分析")
@@ -656,7 +679,8 @@ elif st.session_state.page == '多维度分析':
             if not custom2.empty:
                 melt_df = custom2.melt(id_vars='月份', var_name='灾种', value_name='频次')
                 fig = px.scatter(melt_df, x="月份", y="灾种", size="频次", color="频次", color_continuous_scale=px.colors.sequential.Plasma, title="月份与灾种发生频次分布")
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
+                # 修改背景为白色
+                fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='black')
                 st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("#### 🧬 自由勾选任意灾损指标交叉分析")
