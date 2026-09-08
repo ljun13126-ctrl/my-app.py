@@ -15,7 +15,7 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 修复云端图表中文乱码（自动下载并使用中文字体）
+# 修复云端图表中文乱码
 def set_chinese_font():
     import urllib.request
     font_url = "https://github.com/StellarCN/scp_zh/raw/master/fonts/SimHei.ttf"
@@ -73,7 +73,7 @@ def clean_data(df):
         if col in df.columns: df[col] = df[col].fillna('--')
     return df
 
-# 【本次重要修复】新增安全读取列名的函数，完美防止KeyError报错
+# 【全量安全防护】统一安全读取列
 def safe_get_col(df, col_name, default=0):
     if col_name in df.columns:
         return df[col_name]
@@ -111,11 +111,12 @@ def get_time_trend(df, freq='M'):
     return df_t.groupby('时段').agg({ '受灾人口(人)': 'sum', '直接经济损失(万元)': 'sum', '倒塌房屋间数(间)': 'sum' }).reset_index()
 
 def get_children(df, parent_region):
+    if '隶属区域' not in df.columns: return df
     if parent_region == "全部": return df[df['隶属区域'].isin(['--', '', 'None', 'nan'])]
     return df[df['隶属区域'] == parent_region]
 
 def get_disaster_type_analysis(df):
-    if df.empty: return pd.DataFrame()
+    if df.empty or '灾种' not in df.columns: return pd.DataFrame()
     return df.groupby('灾种').agg({ '受灾人口(人)': 'sum', '因灾死亡人口(人)': 'sum', '直接经济损失(万元)': 'sum', '倒塌房屋间数(间)': 'sum' }).reset_index()
 
 def get_loss_structure(df):
@@ -125,7 +126,7 @@ def get_loss_structure(df):
     return { '住房及家庭财产': round(safe_get_col(df, '其中：住房及居民家庭财产损失(万元)').sum() / total * 100, 2), '农林牧渔业': round(safe_get_col(df, '农林牧渔业损失(万元)').sum() / total * 100, 2), '基础设施': round(safe_get_col(df, '基础设施损失(万元)').sum() / total * 100, 2), '工矿商贸业': round(safe_get_col(df, '工矿商贸业损失(万元)').sum() / total * 100, 2) }
 
 def get_custom_analysis1(df):
-    if df.empty: return pd.DataFrame()
+    if df.empty or '区域' not in df.columns or '灾种' not in df.columns: return pd.DataFrame()
     cross = df.groupby(['区域', '灾种']).agg({'直接经济损失(万元)': 'sum', '受灾人口(人)': 'sum'}).reset_index()
     return cross.sort_values('直接经济损失(万元)', ascending=False).head(5)
 
@@ -175,8 +176,13 @@ def get_alert_level(df):
     elif pop > 100000 or loss > 5000: return "黄色预警", "中等"
     else: return "蓝色预警", "一般"
 
+# 【修复报错核心】允许找不到区域列时直接返回空，防止崩溃
 def get_region_radar(df):
     if df.empty: return pd.DataFrame()
+    # 检查所有需要的列是否存在，不存在直接返回空
+    required_cols = ['区域', '受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']
+    if not all(col in df.columns for col in required_cols):
+        return pd.DataFrame()
     top_regions = df.groupby('区域').agg({'受灾人口(人)':'sum', '直接经济损失(万元)':'sum', '倒塌房屋间数(间)':'sum', '农作物受灾面积(公顷)':'sum'}).reset_index().head(5)
     if top_regions.empty: return pd.DataFrame()
     for col in ['受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']:
@@ -387,7 +393,6 @@ if st.session_state.page == '首页':
 # ==================== 数据导入 ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
-    # 已按照要求交给 config.toml 控制 100GB 上限
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
     if uploaded_file is not None:
         try:
@@ -414,7 +419,7 @@ elif st.session_state.page == '多维度分析':
             with m5: st.metric("经济受损评级", core['经济受损度评级'])
             st.markdown("""
                 <div class="insight-box">
-                    <b>💡 决策建议：</b> 当前受灾人口风险评级为极高，建议立即启动应急响应机制，重点对人口密集区进行疏散，并优先保障房屋倒塌区域的灾后安置工作。
+                    <b>💡 决策建议：</b> 建议立即启动应急响应机制，重点对人口密集区进行疏散，并优先保障房屋倒塌区域的灾后安置工作。
                 </div>
             """, unsafe_allow_html=True)
 
@@ -437,6 +442,8 @@ elif st.session_state.page == '多维度分析':
                     fig.add_trace(go.Scatterpolar(r=[row[cat] for cat in categories], theta=categories, fill='toself', name=row['区域']))
                 fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("暂无区域数据，请上传包含【区域】列的数据。")
 
         with col_r2:
             st.markdown("#### 📈 未来趋势智能预测")
@@ -503,6 +510,8 @@ elif st.session_state.page == '多维度分析':
                         <b>🛠️ 解决方案：</b> 对排名前二的灾种建立重点防御工程，提升防洪排涝标准。
                     </div>
                 """, unsafe_allow_html=True)
+            else:
+                st.info("暂无灾种数据，请上传包含【灾种】列的数据。")
 
         st.markdown("### 💸 核心损失结构拆解")
         loss = get_loss_structure(df)
@@ -544,6 +553,7 @@ elif st.session_state.page == '多维度分析':
             st.markdown("#### 🎯 高风险组合 (TOP5)")
             custom1 = get_custom_analysis1(df)
             if not custom1.empty: st.dataframe(custom1, use_container_width=True)
+            else: st.info("暂无组合数据")
         with x2:
             st.markdown("#### 🌡️ 月份-灾种频次气泡图")
             custom2 = get_custom_analysis2(df)
