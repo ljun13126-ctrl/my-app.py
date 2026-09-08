@@ -18,7 +18,6 @@ import plotly.graph_objects as go
 # 修复云端图表中文乱码（自动下载并使用中文字体）
 def set_chinese_font():
     import urllib.request
-    # 开源中文字体（黑体）下载链接
     font_url = "https://github.com/StellarCN/scp_zh/raw/master/fonts/SimHei.ttf"
     local_font_path = os.path.join(os.getcwd(), "SimHei.ttf")
     if not os.path.exists(local_font_path):
@@ -74,11 +73,13 @@ def clean_data(df):
         if col in df.columns: df[col] = df[col].fillna('--')
     return df
 
+# 【已修复问题1：调整经济受损评级阈值，5.5亿判定为极高】
 def get_core_metrics(df):
     if df.empty: return {}
-    total_pop = df['受灾人口(人)'].sum(); total_loss = df['直接经济损失(万元)'].sum()
+    total_pop = df['受灾人口(人)'].sum()
+    total_loss = df['直接经济损失(万元)'].sum()
     pop_risk = "极高" if total_pop > 1000000 else ("高" if total_pop > 500000 else "中")
-    loss_risk = "极高" if total_loss > 500000 else ("高" if total_loss > 100000 else "中")
+    loss_risk = "极高" if total_loss > 50000 else ("高" if total_loss > 10000 else "中")
     return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(df['倒塌房屋间数(间)'].sum()) }
 
 def get_summary_stats(df):
@@ -155,9 +156,9 @@ def get_yoy_compare(df):
 def get_alert_level(df):
     stats = get_summary_stats(df)
     pop = stats.get('受灾总人口', 0); loss = stats.get('直接经济损失(万元)', 0)
-    if pop > 1000000 or loss > 500000: return "红色预警", "严重"
-    elif pop > 500000 or loss > 100000: return "橙色预警", "较重"
-    elif pop > 100000 or loss > 50000: return "黄色预警", "中等"
+    if pop > 1000000 or loss > 50000: return "红色预警", "严重"
+    elif pop > 500000 or loss > 10000: return "橙色预警", "较重"
+    elif pop > 100000 or loss > 5000: return "黄色预警", "中等"
     else: return "蓝色预警", "一般"
 
 def get_region_radar(df):
@@ -224,11 +225,17 @@ def generate_report(df):
     add_para("（二）空间维度。灾情呈现出空间上的集聚特征，灾害多集中在特定行政区域，应实施“一点一策”管理。")
     add_para("（三）灾种维度。经济损失主要集中在住房、农林牧渔、基础设施和工矿商贸四大领域。")
 
+    # 【已修复问题2：如果只有1个数据点，自动切换为柱状图避免空白椭圆】
     if not trend.empty:
         add_chart_title("图1：直接经济损失月度演变趋势（AI智能研判）")
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', linewidth=2)
-        ax.grid(True, linestyle='--', alpha=0.5)
+        if len(trend) < 2:
+            ax.bar(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', width=0.5)
+            ax.set_title('当前数据仅包含一个时期（已自动转为柱状图）')
+            ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+        else:
+            ax.plot(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', linewidth=2)
+            ax.grid(True, linestyle='--', alpha=0.5)
         fig.savefig("g1.png", dpi=300); plt.close(fig)
         doc.add_picture("g1.png", width=Inches(6.0))
         add_para("【AI深度分析】模型识别出损失在特定月份的峰值与降雨量呈高度正相关。建议在主汛期来临前，利用气象卫星和物联感知网络提前预警，前置抢险物资。")
@@ -357,7 +364,8 @@ if st.session_state.page == '首页':
 # ==================== 数据导入 ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
-    uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
+    # 【已修复问题3：直接在代码中增加上传大小限制，扩大至500MB】
+    uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'], max_upload_size=500)
     if uploaded_file is not None:
         try:
             df_clean = clean_data(pd.read_excel(uploaded_file, skiprows=1))
@@ -534,7 +542,7 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 智能报告 ====================
+# ==================== 智能报告（已彻底删除st.info提示框） ====================
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df = load_data()
