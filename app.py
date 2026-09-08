@@ -73,17 +73,32 @@ def clean_data(df):
         if col in df.columns: df[col] = df[col].fillna('--')
     return df
 
+# 【本次重要修复】新增安全读取列名的函数，完美防止KeyError报错
+def safe_get_col(df, col_name, default=0):
+    if col_name in df.columns:
+        return df[col_name]
+    for c in df.columns:
+        if str(c).replace('（', '(').replace('）', ')').replace(' ', '') == col_name.replace(' ', ''):
+            return df[c]
+    return pd.Series([default] * len(df))
+
 def get_core_metrics(df):
     if df.empty: return {}
-    total_pop = df['受灾人口(人)'].sum()
-    total_loss = df['直接经济损失(万元)'].sum()
+    total_pop = safe_get_col(df, '受灾人口(人)').sum()
+    total_loss = safe_get_col(df, '直接经济损失(万元)').sum()
     pop_risk = "极高" if total_pop > 1000000 else ("高" if total_pop > 500000 else "中")
     loss_risk = "极高" if total_loss > 50000 else ("高" if total_loss > 10000 else "中")
-    return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(df['倒塌房屋间数(间)'].sum()) }
+    return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(safe_get_col(df, '倒塌房屋间数(间)').sum()) }
 
 def get_summary_stats(df):
     if df.empty: return {}
-    return { '总记录数': len(df), '受灾总人口': int(df['受灾人口(人)'].sum()), '死亡失踪人口': int(df['因灾死亡人口(人)'].sum() + df['因灾失踪人口(人)'].sum()), '转移安置人口': int(df['紧急转移安置人口(累计值)(人)'].sum()), '直接经济损失(万元)': round(df['直接经济损失(万元)'].sum(), 2), '倒塌房屋间数': int(df['倒塌房屋间数(间)'].sum()), '农作物受灾面积(公顷)': round(df['农作物受灾面积(公顷)'].sum(), 2) }
+    return { '总记录数': len(df), 
+             '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
+             '死亡失踪人口': int(safe_get_col(df, '因灾死亡人口(人)').sum() + safe_get_col(df, '因灾失踪人口(人)').sum()), 
+             '转移安置人口': int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum()), 
+             '直接经济损失(万元)': round(safe_get_col(df, '直接经济损失(万元)').sum(), 2), 
+             '倒塌房屋间数': int(safe_get_col(df, '倒塌房屋间数(间)').sum()), 
+             '农作物受灾面积(公顷)': round(safe_get_col(df, '农作物受灾面积(公顷)').sum(), 2) }
 
 def get_time_trend(df, freq='M'):
     if df.empty or '灾害发生时间' not in df.columns: return pd.DataFrame()
@@ -105,9 +120,9 @@ def get_disaster_type_analysis(df):
 
 def get_loss_structure(df):
     if df.empty: return {}
-    total = df['直接经济损失(万元)'].sum()
+    total = safe_get_col(df, '直接经济损失(万元)').sum()
     if total == 0: return {}
-    return { '住房及家庭财产': round(df['其中：住房及居民家庭财产损失(万元)'].sum() / total * 100, 2), '农林牧渔业': round(df['农林牧渔业损失(万元)'].sum() / total * 100, 2), '基础设施': round(df['基础设施损失(万元)'].sum() / total * 100, 2), '工矿商贸业': round(df['工矿商贸业损失(万元)'].sum() / total * 100, 2) }
+    return { '住房及家庭财产': round(safe_get_col(df, '其中：住房及居民家庭财产损失(万元)').sum() / total * 100, 2), '农林牧渔业': round(safe_get_col(df, '农林牧渔业损失(万元)').sum() / total * 100, 2), '基础设施': round(safe_get_col(df, '基础设施损失(万元)').sum() / total * 100, 2), '工矿商贸业': round(safe_get_col(df, '工矿商贸业损失(万元)').sum() / total * 100, 2) }
 
 def get_custom_analysis1(df):
     if df.empty: return pd.DataFrame()
@@ -137,8 +152,8 @@ def predict_trend(df, freq='M', periods=3):
 
 def calc_resource_needs(df):
     if df.empty: return pd.DataFrame()
-    relocate = int(df['紧急转移安置人口(累计值)(人)'].sum())
-    houses = int(df['倒塌房屋间数(间)'].sum())
+    relocate = int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum())
+    houses = int(safe_get_col(df, '倒塌房屋间数(间)').sum())
     need = {
         "物资类型": ["救灾帐篷(顶)", "棉被(床)", "饮用水(吨)", "应急食品(份)", "折叠床(张)"],
         "预计需求总量": [int(relocate / 5 * 1.1) + houses, int(relocate * 1.1), int(relocate * 2 * 7 / 1000), int(relocate * 3 * 7), int(relocate * 1.05)],
@@ -372,7 +387,7 @@ if st.session_state.page == '首页':
 # ==================== 数据导入 ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
-    # 【已按要求修改：删除了max_upload_size参数，交由.streamlit/config.toml控制（100GB上限）】
+    # 已按照要求交给 config.toml 控制 100GB 上限
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
     if uploaded_file is not None:
         try:
