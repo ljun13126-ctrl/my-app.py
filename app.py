@@ -549,6 +549,9 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
+            # 【核心修复点】：强制重命名文件，解决原文件名中特殊字符（如【】...）导致的DatabaseError报错
+            uploaded_file.name = "data.xlsx"
+            
             file_bytes = uploaded_file.getvalue()  # 解决文件流指针问题
             xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
             sheet_name = xls.sheet_names[0]
