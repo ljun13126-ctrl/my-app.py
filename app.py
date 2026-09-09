@@ -14,6 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
+import traceback
 
 # 强制依赖环境检查（防止 Execution failed）
 try:
@@ -549,28 +550,44 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
-            # 【核心修复点】：强制重命名文件，解决原文件名中特殊字符（如【】...）导致的DatabaseError报错
+            # 终极修复1：强制重命名，规避中文特殊字符解析报错
             uploaded_file.name = "data.xlsx"
             
-            file_bytes = uploaded_file.getvalue()  # 解决文件流指针问题
-            xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
-            sheet_name = xls.sheet_names[0]
+            file_bytes = uploaded_file.getvalue()
+            
+            # 终极修复2：多引擎尝试读取，兼容各种刁钻格式
+            xls = None
+            try:
+                xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
+            except Exception:
+                try:
+                    xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='calamine')
+                except Exception:
+                    xls = None
             
             raw_df = None
-            for skip in range(5):  # 智能寻找表头
-                temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=skip)
-                if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
-                    raw_df = temp_df
-                    break
-            
+            if xls is not None:
+                sheet_name = xls.sheet_names[0]
+                for skip in range(5):  # 智能寻找表头
+                    temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=skip)
+                    if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
+                        raw_df = temp_df
+                        break
+                if raw_df is None:
+                    raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+            else:
+                # 终极修复3：有时候只是一个改后缀的CSV文件，硬读
+                raw_df = pd.read_csv(io.BytesIO(file_bytes))
+
             if raw_df is None:
-                raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
-                raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
-                if '区域' not in raw_df.columns:
-                    st.error("❌ 无法在文件中找到【区域】列，请检查文件格式。")
-                    st.stop()
+                st.error("❌ 无法识别文件格式，请确保是标准的 xlsx 文件。")
+                st.stop()
 
             raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
+
+            if '区域' not in raw_df.columns:
+                st.error("❌ 无法在文件中找到【区域】列，请检查文件格式。")
+                st.stop()
 
             raw_df['区域'] = raw_df['区域'].astype(str)
             summary_mask = raw_df['区域'].str.contains('合计', na=False)
@@ -592,10 +609,12 @@ elif st.session_state.page == '数据导入':
                 st.warning("⚠️ 清洗后无有效明细数据，请检查文件格式")
 
         except ModuleNotFoundError:
-            st.error("❌ 依赖库缺失！请务必在 requirements.txt 加入 openpyxl 和 xlrd，然后点击右上角菜单 Reboot 重启应用！")
+            st.error("❌ 缺失引擎库！请去 requirements.txt 添加 openpyxl 和 python-calamine，然后点击右上角 Reboot 重启！")
         except Exception as e:
+            # 终极修复4：直接把底层详细报错打印出来，不再被模糊的 DatabaseError 糊弄
             st.error(f"❌ 读取失败: 底层错误原因 -> {repr(e)}")
-            st.info("💡 终极提示：请确认 requirements.txt 添加了 openpyxl，保存后点击 Streamlit Cloud 右上角 ⋮ -> Reboot 重启服务器。")
+            st.code(traceback.format_exc())
+            st.info("💡 终极提示：请确认 requirements.txt 添加了依赖，保存后点击 Streamlit Cloud 右上角 ⋮ -> Reboot 重启服务器。切勿只刷新网页！")
 
 # ==================== 多维度分析 ====================
 elif st.session_state.page == '多维度分析':
