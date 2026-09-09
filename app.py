@@ -53,7 +53,6 @@ os.makedirs("data", exist_ok=True)
 def init_db():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS disaster_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, disaster_type TEXT, parent_region TEXT, disaster_time TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_evacuation INTEGER, emergency_relocation INTEGER, emergency_life_aid INTEGER, collapsed_houses INTEGER, collapsed_households INTEGER, severe_damaged_houses INTEGER, severe_damaged_households INTEGER, moderate_damaged_houses INTEGER, moderate_damaged_households INTEGER, crop_area_affected REAL, crop_area_no_harvest REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
-    # 新增一个专门存储“合计”行的数据表
     c.execute('''CREATE TABLE IF NOT EXISTS summary_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_relocation INTEGER, collapsed_houses INTEGER, crop_area_affected REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
     conn.commit(); conn.close()
 init_db()
@@ -66,7 +65,6 @@ def load_data():
         conn.close()
     return df
 
-# 新增：读取“合计”行数据
 def load_summary_data():
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -82,12 +80,10 @@ def save_data(df):
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
     conn.close()
 
-# 新增：保存“合计”行数据
 def save_summary_data(summary_df):
     if summary_df is None or summary_df.empty:
         return
     conn = sqlite3.connect(DB_PATH)
-    # 清空旧数据
     conn.execute("DELETE FROM summary_data")
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
     conn.commit()
@@ -142,6 +138,9 @@ def normalize_column_name(col):
 
 def clean_data(df):
     """清洗数据：标准化列名、处理缺失值、过滤合计行"""
+    if df.empty:
+        return df
+    
     # 1. 标准化列名
     rename_map = {}
     for col in df.columns:
@@ -149,12 +148,10 @@ def clean_data(df):
         rename_map[col] = std
     df = df.rename(columns=rename_map)
 
-    # 2. 过滤“合计”行和空行（解决数据翻倍问题）
+    # 2. 过滤“合计”行和空行
     if '区域' in df.columns:
         df['区域'] = df['区域'].astype(str)
-        # 过滤包含“合计”的行
         df = df[~df['区域'].str.contains('合计', na=False)]
-        # 过滤空行、"--"、“nan”等
         df = df[~df['区域'].str.strip().isin(['', '--', 'nan', 'None', '-'])]
 
     # 3. 填充数值列的NaN为0
@@ -178,7 +175,6 @@ def clean_data(df):
 
     return df.reset_index(drop=True)
 
-# ---------- 安全读取列 ----------
 def safe_get_col(df, col_name, default=0):
     if df.empty:
         return pd.Series([default] * len(df))
@@ -189,10 +185,8 @@ def safe_get_col(df, col_name, default=0):
             return df[c]
     return pd.Series([default] * len(df))
 
-# ---------- 核心指标计算（优先使用“合计”行数据） ----------
 def get_core_metrics(df):
     if df.empty: return {}
-    # 优先读取“合计”行数据作为基准
     summary = load_summary_data()
     if summary:
         total_pop = summary.get('affected_population', 0) or 0
@@ -202,14 +196,12 @@ def get_core_metrics(df):
         total_pop = safe_get_col(df, '受灾人口(人)').sum()
         total_loss = safe_get_col(df, '直接经济损失(万元)').sum()
         houses = safe_get_col(df, '倒塌房屋间数(间)').sum()
-        
     pop_risk = "极高" if total_pop > 1000000 else ("高" if total_pop > 500000 else "中")
     loss_risk = "极高" if total_loss > 50000 else ("高" if total_loss > 10000 else "中")
     return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(houses) }
 
 def get_summary_stats(df):
     if df.empty: return {}
-    # 优先读取“合计”行数据作为基准
     summary = load_summary_data()
     if summary:
         return { '总记录数': len(df), 
@@ -249,7 +241,6 @@ def get_disaster_type_analysis(df):
 
 def get_loss_structure(df):
     if df.empty: return {}
-    # 优先读取“合计”行数据
     summary = load_summary_data()
     if summary:
         total = float(summary.get('direct_economic_loss', 0) or 0)
@@ -263,7 +254,6 @@ def get_loss_structure(df):
         agri = safe_get_col(df, '农林牧渔业损失(万元)').sum()
         infra = safe_get_col(df, '基础设施损失(万元)').sum()
         industry = safe_get_col(df, '工矿商贸业损失(万元)').sum()
-        
     if total == 0: return {}
     return { '住房及家庭财产': round(housing / total * 100, 2), '农林牧渔业': round(agri / total * 100, 2), '基础设施': round(infra / total * 100, 2), '工矿商贸业': round(industry / total * 100, 2) }
 
@@ -302,7 +292,6 @@ def calc_resource_needs(df):
     else:
         relocate = int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum())
         houses = int(safe_get_col(df, '倒塌房屋间数(间)').sum())
-        
     need = {
         "物资类型": ["救灾帐篷(顶)", "棉被(床)", "饮用水(吨)", "应急食品(份)", "折叠床(张)"],
         "预计需求总量": [int(relocate / 5 * 1.1) + houses, int(relocate * 1.1), int(relocate * 2 * 7 / 1000), int(relocate * 3 * 7), int(relocate * 1.05)],
@@ -311,7 +300,6 @@ def calc_resource_needs(df):
     return pd.DataFrame(need)
 
 def get_yoy_compare(df):
-    """动态化：根据当前数据集展示数据"""
     if df.empty: return "数据不足，无法对比"
     summary = load_summary_data()
     if summary:
@@ -341,7 +329,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ---------- 报告生成（逻辑不变） ----------
+# ---------- 报告生成 ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -544,43 +532,77 @@ if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
-# ==================== 数据导入 ====================
+# ==================== 数据导入（核心修改） ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
+
+    # 显示当前数据状态
+    current_df = load_data()
+    if not current_df.empty:
+        st.success(f"✅ 当前数据库已有 {len(current_df)} 条明细记录")
+        summary = load_summary_data()
+        if summary:
+            st.info(f"📊 已提取合计行：受灾人口 {summary.get('affected_population', 0):,} 人，经济损失 {summary.get('direct_economic_loss', 0):.2f} 万元")
+
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
+
     if uploaded_file is not None:
         try:
-            # 修复：这里必须使用 header=0，让第一行“合计”行作为正常数据读取
-            raw_df = pd.read_excel(uploaded_file, header=0)
-            
-            # 首先查找“合计”行（用户要求）
-            summary_mask = raw_df['区域'].astype(str).str.contains('合计', na=False)
-            summary_raw = raw_df[summary_mask].copy()
-            
-            # 删除“合计”行，保留明细
-            raw_df = raw_df[~summary_mask].copy()
-            
-            # 保存“合计”行数据到 summary_data 表
+            # ====== 核心修改：正确解析第一行为合计行的文件 ======
+            # 1. 读取所有行，不指定列名（全部作为数据）
+            raw_all = pd.read_excel(uploaded_file, header=None)
+
+            # 2. 第一行是“合计”行，第二行是真正的表头
+            # 但注意：合计行内容是数据，不是列名
+            # 我们先把第一行（合计行）单独提取，然后用第二行作为列名
+            header_row = raw_all.iloc[0].tolist()      # 第一行数据（实际是列名）
+            data_start = raw_all.iloc[1:]              # 从第二行开始是数据
+
+            # 3. 用第一行数据作为列名
+            data_start.columns = header_row
+
+            # 4. 重置索引
+            raw_df = data_start.reset_index(drop=True)
+
+            # 5. 识别“合计”行：在“区域”列中查找包含“合计”的行
+            # 注意：此时列名是“区域”，因为第一行有“区域”这个字段
+            if '区域' in raw_df.columns:
+                raw_df['区域'] = raw_df['区域'].astype(str)
+                summary_mask = raw_df['区域'].str.contains('合计', na=False)
+                summary_raw = raw_df[summary_mask].copy()
+                raw_df = raw_df[~summary_mask].copy()
+            else:
+                st.error("❌ 未找到【区域】列，请检查文件格式")
+                st.stop()
+
+            # 6. 保存“合计”行
             if not summary_raw.empty:
-                # 标准化列名后保存
                 summary_raw = summary_raw.rename(columns={col: normalize_column_name(col) for col in summary_raw.columns})
                 save_summary_data(summary_raw)
-            
-            # 清洗明细数据
+                st.info(f"✅ 已提取合计行数据：{len(summary_raw)} 行")
+            else:
+                st.warning("⚠️ 未找到合计行，可能文件格式与预期不符")
+
+            # 7. 清洗明细数据
             df_clean = clean_data(raw_df)
-            save_data(df_clean)
-            
-            st.success(f"✅ 上传成功！共 {len(df_clean)} 条明细记录，并已提取“合计”行汇总数据。")
-            st.dataframe(df_clean.head(10))
+
+            if not df_clean.empty:
+                save_data(df_clean)
+                st.success(f"✅ 上传成功！共 {len(df_clean)} 条明细记录")
+                st.dataframe(df_clean.head(10))
+            else:
+                st.warning("⚠️ 清洗后无有效明细数据，请检查文件格式")
+
         except Exception as e:
             st.error(f"❌ 读取失败: {str(e)}")
+            st.info("💡 提示：请确保Excel文件第一行包含列名（如'区域'、'灾种'等），第一行之后的数据为明细记录，'合计'行会被自动识别并提取。")
 
 # ==================== 综合分析 ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df = load_data()
-    df = clean_data(df)  # 确保再次清洗
-    if df.empty: 
+    df = clean_data(df)
+    if df.empty:
         st.warning("⚠️ 暂无数据，请先在【数据导入】页面上传Excel。")
     else:
         st.markdown("### 🔴 核心灾情指标概况")
@@ -592,7 +614,6 @@ elif st.session_state.page == '多维度分析':
             with m3: st.metric("倒塌房屋", f"{core['房屋倒塌间数']:,} 间")
             with m4: st.metric("受灾风险评级", core['受灾严重度评级'])
             with m5: st.metric("经济受损评级", core['经济受损度评级'])
-            # 决策建议动态化
             total_pop = core['受灾人口总量']
             total_loss = core['经济损失总量']
             houses = core['房屋倒塌间数']
@@ -663,7 +684,7 @@ elif st.session_state.page == '多维度分析':
         cols = st.columns(4)
         for i, (k, v) in enumerate(stats.items()):
             with cols[i % 4]: st.markdown(f"""<div class="stat-card"><div class="stat-label">{k}</div><div class="stat-value">{v}</div></div>""", unsafe_allow_html=True)
-        
+
         st.markdown("---")
         a, b = st.columns(2)
         with a:
@@ -675,7 +696,6 @@ elif st.session_state.page == '多维度分析':
                 fig = px.line(trend, x='时段', y='受灾人口(人)', title=f"受灾人口{freq_label}度变化", markers=True)
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
-                # 动态化建议
                 max_pop_row = trend.loc[trend['受灾人口(人)'].idxmax()]
                 st.markdown(f"""
                     <div class="insight-box">
@@ -683,12 +703,11 @@ elif st.session_state.page == '多维度分析':
                         <b>🛠️ 解决方案：</b> 在灾情高发期到来前完成应急物资前置储备。
                     </div>
                 """, unsafe_allow_html=True)
-        
+
         with b:
             st.markdown("#### 🥧 灾种损失占比")
             disaster = get_disaster_type_analysis(df)
             if not disaster.empty:
-                # 处理极小的数据标签：将占比小于1%的合并为“其他”
                 total_loss = disaster['直接经济损失(万元)'].sum()
                 disaster['占比'] = disaster['直接经济损失(万元)'] / total_loss * 100
                 others = disaster[disaster['占比'] < 1]
@@ -698,10 +717,10 @@ elif st.session_state.page == '多维度分析':
                     disaster = pd.concat([main, other_row], ignore_index=True)
 
                 fig = px.pie(disaster, values='直接经济损失(万元)', names='灾种', title="各灾种经济损失占比", color_discrete_sequence=['#d4af37', '#ff6b6b', '#4ecdc4', '#45b7d1', '#a29bfe'])
-                fig.update_traces(textposition='inside', textinfo='percent', textfont_size=12)  # 隐藏小数据标签
+                fig.update_traces(textposition='inside', textinfo='percent', textfont_size=12)
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
-                
+
                 top_disaster_name = disaster.loc[disaster['直接经济损失(万元)'].idxmax(), '灾种']
                 st.markdown(f"""
                     <div class="insight-box">
@@ -743,7 +762,6 @@ elif st.session_state.page == '多维度分析':
                     st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(agg_df.sort_values('直接经济损失(万元)', ascending=False), use_container_width=True)
 
-        # 修改气泡图背景为白色，文字加粗黑体
         st.markdown("### 💨 受灾人口与避险转移关联分析气泡图")
         bubble_df = df[df['受灾人口(人)'] > 0] if '受灾人口(人)' in df.columns else pd.DataFrame()
         if not bubble_df.empty:
@@ -772,7 +790,6 @@ elif st.session_state.page == '多维度分析':
             if not custom2.empty:
                 melt_df = custom2.melt(id_vars='月份', var_name='灾种', value_name='频次')
                 fig = px.scatter(melt_df, x="月份", y="灾种", size="频次", color="频次", color_continuous_scale=px.colors.sequential.Plasma, title="月份与灾种发生频次分布")
-                # 修改背景为白色，文字加粗黑体
                 fig.update_layout(
                     plot_bgcolor='white',
                     paper_bgcolor='white',
@@ -783,7 +800,7 @@ elif st.session_state.page == '多维度分析':
                     legend=dict(font=dict(family='SimHei, Arial, sans-serif', size=12, color='black'))
                 )
                 st.plotly_chart(fig, use_container_width=True)
-        
+
         st.markdown("#### 🧬 自由勾选任意灾损指标交叉分析")
         numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
         cross_dim = st.selectbox("选择交叉维度:", ['灾种'] + [c for c in df.columns if c not in numeric_cols])
@@ -804,7 +821,7 @@ elif st.session_state.page == '智能报告':
     if df.empty: st.warning("⚠️ 暂无数据")
     else:
         if st.button("🚀 生成并下载报告 (Word)", use_container_width=True):
-            with st.spinner("正在生成深度报告中..."): 
+            with st.spinner("正在生成深度报告中..."):
                 report = generate_report(df)
                 st.download_button("📥 点击下载报告", data=report, file_name="灾智云_国标专业分析报告.docx", use_container_width=True)
 
