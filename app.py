@@ -111,12 +111,22 @@ def save_data(df):
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
     conn.close()
 
+# 【核心修复点】：修改 save_summary_data，只保留数据库表中存在的列，过滤多余列
 def save_summary_data(summary_df):
     if summary_df is None or summary_df.empty: return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM summary_data")
+    
     summary_df = summary_df.rename(columns=CH_TO_DB_MAPPING)
     if 'id' in summary_df.columns: summary_df.drop(columns=['id'], inplace=True)
+    
+    # 获取 summary_data 表中当前存在的列名
+    cursor = conn.execute("SELECT * FROM summary_data LIMIT 1")
+    col_names = [description[0] for description in cursor.description]
+    
+    # 只保留存在于表中的列，防止列数不匹配导致 Execution failed
+    summary_df = summary_df[[col for col in summary_df.columns if col in col_names]]
+    
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
     conn.commit(); conn.close()
 
