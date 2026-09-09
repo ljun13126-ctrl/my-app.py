@@ -532,7 +532,7 @@ if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
-# ==================== 数据导入（核心修改） ====================
+# ==================== 数据导入（最终修正版） ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
@@ -548,42 +548,31 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
-            # ====== 核心修改：正确解析第一行为合计行的文件 ======
-            # 1. 读取所有行，不指定列名（全部作为数据）
-            raw_all = pd.read_excel(uploaded_file, header=None)
+            # ====== 正确解析：第一行为列名，第二行为合计行 ======
+            raw_df = pd.read_excel(uploaded_file, header=0)
 
-            # 2. 第一行是“合计”行，第二行是真正的表头
-            # 但注意：合计行内容是数据，不是列名
-            # 我们先把第一行（合计行）单独提取，然后用第二行作为列名
-            header_row = raw_all.iloc[0].tolist()      # 第一行数据（实际是列名）
-            data_start = raw_all.iloc[1:]              # 从第二行开始是数据
-
-            # 3. 用第一行数据作为列名
-            data_start.columns = header_row
-
-            # 4. 重置索引
-            raw_df = data_start.reset_index(drop=True)
-
-            # 5. 识别“合计”行：在“区域”列中查找包含“合计”的行
-            # 注意：此时列名是“区域”，因为第一行有“区域”这个字段
-            if '区域' in raw_df.columns:
-                raw_df['区域'] = raw_df['区域'].astype(str)
-                summary_mask = raw_df['区域'].str.contains('合计', na=False)
-                summary_raw = raw_df[summary_mask].copy()
-                raw_df = raw_df[~summary_mask].copy()
-            else:
+            # 确保“区域”列存在
+            if '区域' not in raw_df.columns:
                 st.error("❌ 未找到【区域】列，请检查文件格式")
                 st.stop()
 
-            # 6. 保存“合计”行
+            # 识别“合计”行（可能在第二行或其他位置）
+            raw_df['区域'] = raw_df['区域'].astype(str)
+            summary_mask = raw_df['区域'].str.contains('合计', na=False)
+            summary_raw = raw_df[summary_mask].copy()
+
+            # 剔除合计行，得到明细数据
+            raw_df = raw_df[~summary_mask].copy()
+
+            # 保存合计行
             if not summary_raw.empty:
                 summary_raw = summary_raw.rename(columns={col: normalize_column_name(col) for col in summary_raw.columns})
                 save_summary_data(summary_raw)
-                st.info(f"✅ 已提取合计行数据：{len(summary_raw)} 行")
+                st.info(f"✅ 已提取合计行数据（共 {len(summary_raw)} 行）")
             else:
-                st.warning("⚠️ 未找到合计行，可能文件格式与预期不符")
+                st.warning("⚠️ 未找到包含“合计”的行，可能文件格式与预期不符，将只保存明细数据")
 
-            # 7. 清洗明细数据
+            # 清洗明细数据
             df_clean = clean_data(raw_df)
 
             if not df_clean.empty:
@@ -595,7 +584,7 @@ elif st.session_state.page == '数据导入':
 
         except Exception as e:
             st.error(f"❌ 读取失败: {str(e)}")
-            st.info("💡 提示：请确保Excel文件第一行包含列名（如'区域'、'灾种'等），第一行之后的数据为明细记录，'合计'行会被自动识别并提取。")
+            st.info("💡 提示：请确保Excel文件第一行包含列名（如'区域'、'灾种'等），第二行为汇总行（包含'合计'字样），从第三行开始为明细记录。")
 
 # ==================== 综合分析 ====================
 elif st.session_state.page == '多维度分析':
