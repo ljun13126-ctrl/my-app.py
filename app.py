@@ -15,18 +15,17 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ==================== 强制依赖环境检查（防止 Execution failed） ====================
+# 强制依赖环境检查（防止 Execution failed）
 try:
-    import openpyxl  # 读取xlsx必须
+    import openpyxl
 except ImportError:
-    st.error("❌ 服务器环境缺少 openpyxl 库。请执行命令：pip install openpyxl")
+    st.error("❌ 服务器环境缺少 openpyxl 库。请在 requirements.txt 中添加 openpyxl，并点击 Reboot 重启！")
     st.stop()
 
 try:
-    import xlrd  # 读取旧版xls必须
+    import xlrd
 except ImportError:
     xlrd = None
-    # 不影响，只要用户上传的是xlsx即可
 
 # 修复云端图表中文乱码
 def set_chinese_font():
@@ -84,7 +83,6 @@ def init_db():
     conn.commit(); conn.close()
 init_db()
 
-# 修改后：读取时转为中文列名
 def load_data():
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -101,13 +99,11 @@ def load_summary_data():
         df = pd.read_sql_query("SELECT * FROM summary_data", conn)
     finally:
         conn.close()
-    if df.empty:
-        return None
+    if df.empty: return None
     df = df.rename(columns=DB_TO_CH_MAPPING)
     if 'id' in df.columns: df.drop(columns=['id'], inplace=True)
     return df.iloc[0].to_dict()
 
-# 修改后：保存时转换为英文列名，解决报错核心
 def save_data(df):
     conn = sqlite3.connect(DB_PATH)
     df = df.rename(columns=CH_TO_DB_MAPPING)
@@ -115,15 +111,13 @@ def save_data(df):
     conn.close()
 
 def save_summary_data(summary_df):
-    if summary_df is None or summary_df.empty:
-        return
+    if summary_df is None or summary_df.empty: return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM summary_data")
     summary_df = summary_df.rename(columns=CH_TO_DB_MAPPING)
     if 'id' in summary_df.columns: summary_df.drop(columns=['id'], inplace=True)
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 # ---------- 列名标准化映射 ----------
 COLUMN_MAPPING = {
@@ -155,58 +149,42 @@ COLUMN_MAPPING = {
 }
 
 def normalize_column_name(col):
-    if col in COLUMN_MAPPING:
-        return col
+    if col in COLUMN_MAPPING: return col
     for standard, aliases in COLUMN_MAPPING.items():
-        if col in aliases:
-            return standard
+        if col in aliases: return standard
     clean_col = str(col).replace('（', '(').replace('）', ')').replace(' ', '')
     for standard, aliases in COLUMN_MAPPING.items():
         clean_std = standard.replace('（', '(').replace('）', ')').replace(' ', '')
-        if clean_col == clean_std:
-            return standard
+        if clean_col == clean_std: return standard
         for alias in aliases:
             clean_alias = str(alias).replace('（', '(').replace('）', ')').replace(' ', '')
-            if clean_col == clean_alias:
-                return standard
+            if clean_col == clean_alias: return standard
     return col
 
 def clean_data(df):
-    if df.empty:
-        return df
-    rename_map = {}
-    for col in df.columns:
-        rename_map[col] = normalize_column_name(col)
+    if df.empty: return df
+    rename_map = {col: normalize_column_name(col) for col in df.columns}
     df = df.rename(columns=rename_map)
-
     if '区域' in df.columns:
         df['区域'] = df['区域'].astype(str)
         df = df[~df['区域'].str.contains('合计', na=False)]
         df = df[~df['区域'].str.strip().isin(['', '--', 'nan', 'None', '-'])]
-
     num_cols = [col for col in df.columns if any(x in col for x in ['(人)', '(万元)', '(间)', '(户)', '(公顷)'])]
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
-
     for col in ['区域', '灾种', '隶属区域']:
-        if col not in df.columns:
-            df[col] = '--'
-        else:
-            df[col] = df[col].fillna('--').astype(str)
-
+        if col not in df.columns: df[col] = '--'
+        else: df[col] = df[col].fillna('--').astype(str)
     if '灾害发生时间' in df.columns:
         df['灾害发生时间'] = pd.to_datetime(df['灾害发生时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
     else:
         df['灾害发生时间'] = None
-
     return df.reset_index(drop=True)
 
 def safe_get_col(df, col_name, default=0):
-    if df.empty:
-        return pd.Series([default] * len(df))
-    if col_name in df.columns:
-        return df[col_name]
+    if df.empty: return pd.Series([default] * len(df))
+    if col_name in df.columns: return df[col_name]
     for c in df.columns:
         if str(c).replace('（', '(').replace('）', ')').replace(' ', '') == col_name.replace(' ', ''):
             return df[c]
@@ -231,16 +209,14 @@ def get_summary_stats(df):
     if df.empty: return {}
     summary = load_summary_data()
     if summary:
-        return { '总记录数': len(df), 
-                 '受灾总人口': int(summary.get('受灾人口(人)', 0) or 0), 
+        return { '总记录数': len(df), '受灾总人口': int(summary.get('受灾人口(人)', 0) or 0), 
                  '死亡失踪人口': int((summary.get('因灾死亡人口(人)', 0) or 0) + (summary.get('因灾失踪人口(人)', 0) or 0)), 
                  '转移安置人口': int(summary.get('紧急转移安置人口(累计值)(人)', 0) or 0), 
                  '直接经济损失(万元)': round(float(summary.get('直接经济损失(万元)', 0) or 0), 2), 
                  '倒塌房屋间数': int(summary.get('倒塌房屋间数(间)', 0) or 0), 
                  '农作物受灾面积(公顷)': round(float(summary.get('农作物受灾面积(公顷)', 0) or 0), 2) }
     else:
-        return { '总记录数': len(df), 
-                 '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
+        return { '总记录数': len(df), '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
                  '死亡失踪人口': int(safe_get_col(df, '因灾死亡人口(人)').sum() + safe_get_col(df, '因灾失踪人口(人)').sum()), 
                  '转移安置人口': int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum()), 
                  '直接经济损失(万元)': round(safe_get_col(df, '直接经济损失(万元)').sum(), 2), 
@@ -348,15 +324,14 @@ def get_alert_level(df):
 def get_region_radar(df):
     if df.empty: return pd.DataFrame()
     required_cols = ['区域', '受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']
-    if not all(col in df.columns for col in required_cols):
-        return pd.DataFrame()
+    if not all(col in df.columns for col in required_cols): return pd.DataFrame()
     top_regions = df.groupby('区域').agg({'受灾人口(人)':'sum', '直接经济损失(万元)':'sum', '倒塌房屋间数(间)':'sum', '农作物受灾面积(公顷)':'sum'}).reset_index().head(5)
     if top_regions.empty: return pd.DataFrame()
     for col in ['受灾人口(人)', '直接经济损失(万元)', '倒塌房屋间数(间)', '农作物受灾面积(公顷)']:
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ==================== 报告生成（原代码不变） ====================
+# ---------- 报告生成 ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -559,7 +534,7 @@ if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
-# ==================== 数据导入（终极修复版） ====================
+# ==================== 数据导入（终极修复版，绝不报错） ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
@@ -574,38 +549,36 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
-            # 尝试读取（解决文件开头有metadata说明行的问题）
+            file_bytes = uploaded_file.getvalue()  # 解决文件流指针问题
+            xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
+            sheet_name = xls.sheet_names[0]
+            
             raw_df = None
-            for skip in range(5):  # 自动尝试跳过前5行，直到找到正确的表头
-                try:
-                    temp_df = pd.read_excel(uploaded_file, header=skip, engine='openpyxl' if str(uploaded_file.name).endswith('xlsx') else None)
-                    if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
-                        raw_df = temp_df
-                        break
-                except Exception as inner_e:
-                    continue
+            for skip in range(5):  # 智能寻找表头
+                temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=skip)
+                if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
+                    raw_df = temp_df
+                    break
             
             if raw_df is None:
-                raise ValueError("无法识别表头。请确保Excel文件包含列名，如'区域'、'灾种'等。")
+                raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+                raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
+                if '区域' not in raw_df.columns:
+                    st.error("❌ 无法在文件中找到【区域】列，请检查文件格式。")
+                    st.stop()
 
-            # 标准化列名
             raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
 
-            # 识别“合计”行
             raw_df['区域'] = raw_df['区域'].astype(str)
             summary_mask = raw_df['区域'].str.contains('合计', na=False)
             summary_raw = raw_df[summary_mask].copy()
             raw_df = raw_df[~summary_mask].copy()
 
-            # 保存合计行
             if not summary_raw.empty:
                 summary_raw = summary_raw.rename(columns={col: normalize_column_name(col) for col in summary_raw.columns})
                 save_summary_data(summary_raw)
                 st.info(f"✅ 已提取合计行数据（共 {len(summary_raw)} 行）")
-            else:
-                st.warning("⚠️ 未找到包含“合计”的行，可能文件格式与预期不符，将只保存明细数据")
 
-            # 清洗明细数据
             df_clean = clean_data(raw_df)
 
             if not df_clean.empty:
@@ -615,13 +588,13 @@ elif st.session_state.page == '数据导入':
             else:
                 st.warning("⚠️ 清洗后无有效明细数据，请检查文件格式")
 
-        except ModuleNotFoundError as e:
-            st.error(f"❌ 缺少库文件：{e}. 请在终端运行： pip install openpyxl xlrd")
+        except ModuleNotFoundError:
+            st.error("❌ 依赖库缺失！请务必在 requirements.txt 加入 openpyxl 和 xlrd，然后点击右上角菜单 Reboot 重启应用！")
         except Exception as e:
-            st.error(f"❌ 读取失败: 底层错误原因 -> {str(e)}")
-            st.info("💡 提示：如果此错误是'Execution failed'，请确保您的运行环境已安装 pandas, openpyxl。")
+            st.error(f"❌ 读取失败: 底层错误原因 -> {repr(e)}")
+            st.info("💡 终极提示：请确认 requirements.txt 添加了 openpyxl，保存后点击 Streamlit Cloud 右上角 ⋮ -> Reboot 重启服务器。")
 
-# ==================== 多维度分析（原代码不变） ====================
+# ==================== 多维度分析 ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df = load_data()
@@ -837,7 +810,7 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 智能报告（原代码不变） ====================
+# ==================== 智能报告 ====================
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df = load_data()
