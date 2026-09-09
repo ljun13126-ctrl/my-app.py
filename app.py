@@ -15,11 +15,18 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 尝试导入 xlrd 以支持 .xls 旧格式（避免因为缺少库导致报错）
+# ==================== 强制依赖环境检查（防止 Execution failed） ====================
 try:
-    import xlrd
+    import openpyxl  # 读取xlsx必须
+except ImportError:
+    st.error("❌ 服务器环境缺少 openpyxl 库。请执行命令：pip install openpyxl")
+    st.stop()
+
+try:
+    import xlrd  # 读取旧版xls必须
 except ImportError:
     xlrd = None
+    # 不影响，只要用户上传的是xlsx即可
 
 # 修复云端图表中文乱码
 def set_chinese_font():
@@ -56,7 +63,7 @@ st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", 
 DB_PATH = "data/uploaded_data.db"
 os.makedirs("data", exist_ok=True)
 
-# ---------- 核心映射表：中文列名 <=> 英文数据库列名 ----------
+# ==================== 核心修复：中文列名与数据库英文列名映射 ====================
 CH_TO_DB_MAPPING = {
     '区域': 'region', '灾种': 'disaster_type', '隶属区域': 'parent_region', '灾害发生时间': 'disaster_time',
     '受灾人口(人)': 'affected_population', '因灾死亡人口(人)': 'death_population', '因灾失踪人口(人)': 'missing_population',
@@ -77,13 +84,13 @@ def init_db():
     conn.commit(); conn.close()
 init_db()
 
+# 修改后：读取时转为中文列名
 def load_data():
     conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query("SELECT * FROM disaster_data", conn)
     finally:
         conn.close()
-    # 将英文列名转为中文列名，方便后续函数处理
     df = df.rename(columns=DB_TO_CH_MAPPING)
     if 'id' in df.columns: df.drop(columns=['id'], inplace=True)
     return df
@@ -100,9 +107,9 @@ def load_summary_data():
     if 'id' in df.columns: df.drop(columns=['id'], inplace=True)
     return df.iloc[0].to_dict()
 
+# 修改后：保存时转换为英文列名，解决报错核心
 def save_data(df):
     conn = sqlite3.connect(DB_PATH)
-    # 将中文列名映射回英文数据库列名
     df = df.rename(columns=CH_TO_DB_MAPPING)
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
     conn.close()
@@ -112,7 +119,6 @@ def save_summary_data(summary_df):
         return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM summary_data")
-    # 映射回英文列名保存
     summary_df = summary_df.rename(columns=CH_TO_DB_MAPPING)
     if 'id' in summary_df.columns: summary_df.drop(columns=['id'], inplace=True)
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
@@ -168,20 +174,16 @@ def normalize_column_name(col):
 def clean_data(df):
     if df.empty:
         return df
-    # 1. 标准化列名
     rename_map = {}
     for col in df.columns:
-        std = normalize_column_name(col)
-        rename_map[col] = std
+        rename_map[col] = normalize_column_name(col)
     df = df.rename(columns=rename_map)
 
-    # 2. 过滤“合计”行和空行
     if '区域' in df.columns:
         df['区域'] = df['区域'].astype(str)
         df = df[~df['区域'].str.contains('合计', na=False)]
         df = df[~df['区域'].str.strip().isin(['', '--', 'nan', 'None', '-'])]
 
-    # 3. 填充数值列
     num_cols = [col for col in df.columns if any(x in col for x in ['(人)', '(万元)', '(间)', '(户)', '(公顷)'])]
     for col in num_cols:
         if col in df.columns:
@@ -354,7 +356,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ---------- 报告生成（与原版一致） ----------
+# ==================== 报告生成（原代码不变） ====================
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -557,7 +559,7 @@ if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
-# ==================== 数据导入（最终修正版） ====================
+# ==================== 数据导入（终极修复版） ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
@@ -572,31 +574,27 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
-            # 尝试读取（处理可能存在的各种异常）
-            try:
-                raw_df = pd.read_excel(uploaded_file, header=0)
-            except Exception as e:
-                if 'xlrd' in str(e).lower():
-                    st.error("❌ 读取失败：需要安装旧版 .xls 支持库，请执行 pip install xlrd")
-                    st.stop()
-                else:
-                    st.error(f"❌ 文件解析失败: {e}")
-                    st.stop()
+            # 尝试读取（解决文件开头有metadata说明行的问题）
+            raw_df = None
+            for skip in range(5):  # 自动尝试跳过前5行，直到找到正确的表头
+                try:
+                    temp_df = pd.read_excel(uploaded_file, header=skip, engine='openpyxl' if str(uploaded_file.name).endswith('xlsx') else None)
+                    if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
+                        raw_df = temp_df
+                        break
+                except Exception as inner_e:
+                    continue
+            
+            if raw_df is None:
+                raise ValueError("无法识别表头。请确保Excel文件包含列名，如'区域'、'灾种'等。")
 
-            # 确保“区域”列存在
-            if '区域' not in raw_df.columns:
-                # 尝试匹配列名
-                raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
-                if '区域' not in raw_df.columns:
-                    st.error("❌ 未找到【区域】列，请检查文件格式")
-                    st.stop()
+            # 标准化列名
+            raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
 
-            # 识别“合计”行（可能在第二行或其他位置）
+            # 识别“合计”行
             raw_df['区域'] = raw_df['区域'].astype(str)
             summary_mask = raw_df['区域'].str.contains('合计', na=False)
             summary_raw = raw_df[summary_mask].copy()
-
-            # 剔除合计行，得到明细数据
             raw_df = raw_df[~summary_mask].copy()
 
             # 保存合计行
@@ -617,11 +615,13 @@ elif st.session_state.page == '数据导入':
             else:
                 st.warning("⚠️ 清洗后无有效明细数据，请检查文件格式")
 
+        except ModuleNotFoundError as e:
+            st.error(f"❌ 缺少库文件：{e}. 请在终端运行： pip install openpyxl xlrd")
         except Exception as e:
-            st.error(f"❌ 读取失败: {e}")
-            st.info("💡 提示：请确保Excel文件第一行包含列名（如'区域'、'灾种'等），第二行为汇总行（包含'合计'字样），从第三行开始为明细记录。")
-            
-# ==================== 综合分析 ====================
+            st.error(f"❌ 读取失败: 底层错误原因 -> {str(e)}")
+            st.info("💡 提示：如果此错误是'Execution failed'，请确保您的运行环境已安装 pandas, openpyxl。")
+
+# ==================== 多维度分析（原代码不变） ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df = load_data()
@@ -837,7 +837,7 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 智能报告 ====================
+# ==================== 智能报告（原代码不变） ====================
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df = load_data()
