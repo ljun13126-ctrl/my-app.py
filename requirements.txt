@@ -1,9 +1,9 @@
 streamlit
 pandas
+openpyxl
+xlrd
 plotly
 python-docx
-openpyxl
 matplotlib
 numpy
-xlrd
-SQLAlchemy
+sqlalchemy
