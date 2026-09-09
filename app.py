@@ -15,6 +15,12 @@ from docx.oxml.ns import qn
 import plotly.express as px
 import plotly.graph_objects as go
 
+# 尝试导入 xlrd 以支持 .xls 旧格式（避免因为缺少库导致报错）
+try:
+    import xlrd
+except ImportError:
+    xlrd = None
+
 # 修复云端图表中文乱码
 def set_chinese_font():
     import urllib.request
@@ -50,6 +56,20 @@ st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", 
 DB_PATH = "data/uploaded_data.db"
 os.makedirs("data", exist_ok=True)
 
+# ---------- 核心映射表：中文列名 <=> 英文数据库列名 ----------
+CH_TO_DB_MAPPING = {
+    '区域': 'region', '灾种': 'disaster_type', '隶属区域': 'parent_region', '灾害发生时间': 'disaster_time',
+    '受灾人口(人)': 'affected_population', '因灾死亡人口(人)': 'death_population', '因灾失踪人口(人)': 'missing_population',
+    '紧急避险转移人口(人)': 'emergency_evacuation', '紧急转移安置人口(累计值)(人)': 'emergency_relocation', '需紧急生活救助人口(累计值)(人)': 'emergency_life_aid',
+    '倒塌房屋间数(间)': 'collapsed_houses', '倒塌住房户数(户)': 'collapsed_households', '严重损坏房屋间数(间)': 'severe_damaged_houses', '严重损坏住房户数(户)': 'severe_damaged_households',
+    '一般损坏房屋间数(间)': 'moderate_damaged_houses', '一般损坏住房户数(户)': 'moderate_damaged_households',
+    '农作物受灾面积(公顷)': 'crop_area_affected', '农作物绝收面积(公顷)': 'crop_area_no_harvest',
+    '直接经济损失(万元)': 'direct_economic_loss', '其中：住房及居民家庭财产损失(万元)': 'housing_loss',
+    '农林牧渔业损失(万元)': 'agri_loss', '工矿商贸业损失(万元)': 'industry_loss', '基础设施损失(万元)': 'infrastructure_loss',
+    '公共服务损失(万元)': 'public_service_loss', '其他损失(万元)': 'other_loss'
+}
+DB_TO_CH_MAPPING = {v: k for k, v in CH_TO_DB_MAPPING.items()}
+
 def init_db():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS disaster_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, disaster_type TEXT, parent_region TEXT, disaster_time TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_evacuation INTEGER, emergency_relocation INTEGER, emergency_life_aid INTEGER, collapsed_houses INTEGER, collapsed_households INTEGER, severe_damaged_houses INTEGER, severe_damaged_households INTEGER, moderate_damaged_houses INTEGER, moderate_damaged_households INTEGER, crop_area_affected REAL, crop_area_no_harvest REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
@@ -63,6 +83,9 @@ def load_data():
         df = pd.read_sql_query("SELECT * FROM disaster_data", conn)
     finally:
         conn.close()
+    # 将英文列名转为中文列名，方便后续函数处理
+    df = df.rename(columns=DB_TO_CH_MAPPING)
+    if 'id' in df.columns: df.drop(columns=['id'], inplace=True)
     return df
 
 def load_summary_data():
@@ -73,10 +96,14 @@ def load_summary_data():
         conn.close()
     if df.empty:
         return None
+    df = df.rename(columns=DB_TO_CH_MAPPING)
+    if 'id' in df.columns: df.drop(columns=['id'], inplace=True)
     return df.iloc[0].to_dict()
 
 def save_data(df):
     conn = sqlite3.connect(DB_PATH)
+    # 将中文列名映射回英文数据库列名
+    df = df.rename(columns=CH_TO_DB_MAPPING)
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
     conn.close()
 
@@ -85,6 +112,9 @@ def save_summary_data(summary_df):
         return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM summary_data")
+    # 映射回英文列名保存
+    summary_df = summary_df.rename(columns=CH_TO_DB_MAPPING)
+    if 'id' in summary_df.columns: summary_df.drop(columns=['id'], inplace=True)
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
     conn.commit()
     conn.close()
@@ -119,7 +149,6 @@ COLUMN_MAPPING = {
 }
 
 def normalize_column_name(col):
-    """将列名标准化为统一中文列名"""
     if col in COLUMN_MAPPING:
         return col
     for standard, aliases in COLUMN_MAPPING.items():
@@ -137,10 +166,8 @@ def normalize_column_name(col):
     return col
 
 def clean_data(df):
-    """清洗数据：标准化列名、处理缺失值、过滤合计行"""
     if df.empty:
         return df
-    
     # 1. 标准化列名
     rename_map = {}
     for col in df.columns:
@@ -154,20 +181,18 @@ def clean_data(df):
         df = df[~df['区域'].str.contains('合计', na=False)]
         df = df[~df['区域'].str.strip().isin(['', '--', 'nan', 'None', '-'])]
 
-    # 3. 填充数值列的NaN为0
+    # 3. 填充数值列
     num_cols = [col for col in df.columns if any(x in col for x in ['(人)', '(万元)', '(间)', '(户)', '(公顷)'])]
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
 
-    # 4. 确保字符串列存在
     for col in ['区域', '灾种', '隶属区域']:
         if col not in df.columns:
             df[col] = '--'
         else:
             df[col] = df[col].fillna('--').astype(str)
 
-    # 5. 处理时间列
     if '灾害发生时间' in df.columns:
         df['灾害发生时间'] = pd.to_datetime(df['灾害发生时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
     else:
@@ -189,9 +214,9 @@ def get_core_metrics(df):
     if df.empty: return {}
     summary = load_summary_data()
     if summary:
-        total_pop = summary.get('affected_population', 0) or 0
-        total_loss = summary.get('direct_economic_loss', 0) or 0
-        houses = summary.get('collapsed_houses', 0) or 0
+        total_pop = summary.get('受灾人口(人)', 0) or 0
+        total_loss = summary.get('直接经济损失(万元)', 0) or 0
+        houses = summary.get('倒塌房屋间数(间)', 0) or 0
     else:
         total_pop = safe_get_col(df, '受灾人口(人)').sum()
         total_loss = safe_get_col(df, '直接经济损失(万元)').sum()
@@ -205,12 +230,12 @@ def get_summary_stats(df):
     summary = load_summary_data()
     if summary:
         return { '总记录数': len(df), 
-                 '受灾总人口': int(summary.get('affected_population', 0) or 0), 
-                 '死亡失踪人口': int((summary.get('death_population', 0) or 0) + (summary.get('missing_population', 0) or 0)), 
-                 '转移安置人口': int(summary.get('emergency_relocation', 0) or 0), 
-                 '直接经济损失(万元)': round(float(summary.get('direct_economic_loss', 0) or 0), 2), 
-                 '倒塌房屋间数': int(summary.get('collapsed_houses', 0) or 0), 
-                 '农作物受灾面积(公顷)': round(float(summary.get('crop_area_affected', 0) or 0), 2) }
+                 '受灾总人口': int(summary.get('受灾人口(人)', 0) or 0), 
+                 '死亡失踪人口': int((summary.get('因灾死亡人口(人)', 0) or 0) + (summary.get('因灾失踪人口(人)', 0) or 0)), 
+                 '转移安置人口': int(summary.get('紧急转移安置人口(累计值)(人)', 0) or 0), 
+                 '直接经济损失(万元)': round(float(summary.get('直接经济损失(万元)', 0) or 0), 2), 
+                 '倒塌房屋间数': int(summary.get('倒塌房屋间数(间)', 0) or 0), 
+                 '农作物受灾面积(公顷)': round(float(summary.get('农作物受灾面积(公顷)', 0) or 0), 2) }
     else:
         return { '总记录数': len(df), 
                  '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
@@ -243,11 +268,11 @@ def get_loss_structure(df):
     if df.empty: return {}
     summary = load_summary_data()
     if summary:
-        total = float(summary.get('direct_economic_loss', 0) or 0)
-        housing = float(summary.get('housing_loss', 0) or 0)
-        agri = float(summary.get('agri_loss', 0) or 0)
-        infra = float(summary.get('infrastructure_loss', 0) or 0)
-        industry = float(summary.get('industry_loss', 0) or 0)
+        total = float(summary.get('直接经济损失(万元)', 0) or 0)
+        housing = float(summary.get('其中：住房及居民家庭财产损失(万元)', 0) or 0)
+        agri = float(summary.get('农林牧渔业损失(万元)', 0) or 0)
+        infra = float(summary.get('基础设施损失(万元)', 0) or 0)
+        industry = float(summary.get('工矿商贸业损失(万元)', 0) or 0)
     else:
         total = safe_get_col(df, '直接经济损失(万元)').sum()
         housing = safe_get_col(df, '其中：住房及居民家庭财产损失(万元)').sum()
@@ -287,8 +312,8 @@ def calc_resource_needs(df):
     if df.empty: return pd.DataFrame()
     summary = load_summary_data()
     if summary:
-        relocate = int(summary.get('emergency_relocation', 0) or 0)
-        houses = int(summary.get('collapsed_houses', 0) or 0)
+        relocate = int(summary.get('紧急转移安置人口(累计值)(人)', 0) or 0)
+        houses = int(summary.get('倒塌房屋间数(间)', 0) or 0)
     else:
         relocate = int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum())
         houses = int(safe_get_col(df, '倒塌房屋间数(间)').sum())
@@ -303,8 +328,8 @@ def get_yoy_compare(df):
     if df.empty: return "数据不足，无法对比"
     summary = load_summary_data()
     if summary:
-        current_loss = round(float(summary.get('direct_economic_loss', 0) or 0), 2)
-        current_pop = int(summary.get('affected_population', 0) or 0)
+        current_loss = round(float(summary.get('直接经济损失(万元)', 0) or 0), 2)
+        current_pop = int(summary.get('受灾人口(人)', 0) or 0)
     else:
         current_loss = round(safe_get_col(df, '直接经济损失(万元)').sum(), 2)
         current_pop = int(safe_get_col(df, '受灾人口(人)').sum())
@@ -329,7 +354,7 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ---------- 报告生成 ----------
+# ---------- 报告生成（与原版一致） ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -536,25 +561,35 @@ if st.session_state.page == '首页':
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
-    # 显示当前数据状态
     current_df = load_data()
     if not current_df.empty:
         st.success(f"✅ 当前数据库已有 {len(current_df)} 条明细记录")
         summary = load_summary_data()
         if summary:
-            st.info(f"📊 已提取合计行：受灾人口 {summary.get('affected_population', 0):,} 人，经济损失 {summary.get('direct_economic_loss', 0):.2f} 万元")
+            st.info(f"📊 已提取合计行：受灾人口 {summary.get('受灾人口(人)', 0):,} 人，经济损失 {summary.get('直接经济损失(万元)', 0):.2f} 万元")
 
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
 
     if uploaded_file is not None:
         try:
-            # ====== 正确解析：第一行为列名，第二行为合计行 ======
-            raw_df = pd.read_excel(uploaded_file, header=0)
+            # 尝试读取（处理可能存在的各种异常）
+            try:
+                raw_df = pd.read_excel(uploaded_file, header=0)
+            except Exception as e:
+                if 'xlrd' in str(e).lower():
+                    st.error("❌ 读取失败：需要安装旧版 .xls 支持库，请执行 pip install xlrd")
+                    st.stop()
+                else:
+                    st.error(f"❌ 文件解析失败: {e}")
+                    st.stop()
 
             # 确保“区域”列存在
             if '区域' not in raw_df.columns:
-                st.error("❌ 未找到【区域】列，请检查文件格式")
-                st.stop()
+                # 尝试匹配列名
+                raw_df = raw_df.rename(columns={col: normalize_column_name(col) for col in raw_df.columns})
+                if '区域' not in raw_df.columns:
+                    st.error("❌ 未找到【区域】列，请检查文件格式")
+                    st.stop()
 
             # 识别“合计”行（可能在第二行或其他位置）
             raw_df['区域'] = raw_df['区域'].astype(str)
@@ -583,9 +618,9 @@ elif st.session_state.page == '数据导入':
                 st.warning("⚠️ 清洗后无有效明细数据，请检查文件格式")
 
         except Exception as e:
-            st.error(f"❌ 读取失败: {str(e)}")
+            st.error(f"❌ 读取失败: {e}")
             st.info("💡 提示：请确保Excel文件第一行包含列名（如'区域'、'灾种'等），第二行为汇总行（包含'合计'字样），从第三行开始为明细记录。")
-
+            
 # ==================== 综合分析 ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
