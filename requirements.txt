@@ -2,6 +2,7 @@ streamlit
 pandas
 openpyxl
 xlrd
+python-calamine
 plotly
 python-docx
 matplotlib
