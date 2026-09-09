@@ -53,6 +53,8 @@ os.makedirs("data", exist_ok=True)
 def init_db():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS disaster_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, disaster_type TEXT, parent_region TEXT, disaster_time TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_evacuation INTEGER, emergency_relocation INTEGER, emergency_life_aid INTEGER, collapsed_houses INTEGER, collapsed_households INTEGER, severe_damaged_houses INTEGER, severe_damaged_households INTEGER, moderate_damaged_houses INTEGER, moderate_damaged_households INTEGER, crop_area_affected REAL, crop_area_no_harvest REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
+    # 新增一个专门存储“合计”行的数据表
+    c.execute('''CREATE TABLE IF NOT EXISTS summary_data (id INTEGER PRIMARY KEY AUTOINCREMENT, region TEXT, affected_population INTEGER, death_population INTEGER, missing_population INTEGER, emergency_relocation INTEGER, collapsed_houses INTEGER, crop_area_affected REAL, direct_economic_loss REAL, housing_loss REAL, agri_loss REAL, industry_loss REAL, infrastructure_loss REAL, public_service_loss REAL, other_loss REAL)''')
     conn.commit(); conn.close()
 init_db()
 
@@ -64,9 +66,31 @@ def load_data():
         conn.close()
     return df
 
+# 新增：读取“合计”行数据
+def load_summary_data():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql_query("SELECT * FROM summary_data", conn)
+    finally:
+        conn.close()
+    if df.empty:
+        return None
+    return df.iloc[0].to_dict()
+
 def save_data(df):
     conn = sqlite3.connect(DB_PATH)
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
+    conn.close()
+
+# 新增：保存“合计”行数据
+def save_summary_data(summary_df):
+    if summary_df is None or summary_df.empty:
+        return
+    conn = sqlite3.connect(DB_PATH)
+    # 清空旧数据
+    conn.execute("DELETE FROM summary_data")
+    summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
+    conn.commit()
     conn.close()
 
 # ---------- 列名标准化映射 ----------
@@ -165,24 +189,44 @@ def safe_get_col(df, col_name, default=0):
             return df[c]
     return pd.Series([default] * len(df))
 
-# ---------- 核心指标计算 ----------
+# ---------- 核心指标计算（优先使用“合计”行数据） ----------
 def get_core_metrics(df):
     if df.empty: return {}
-    total_pop = safe_get_col(df, '受灾人口(人)').sum()
-    total_loss = safe_get_col(df, '直接经济损失(万元)').sum()
+    # 优先读取“合计”行数据作为基准
+    summary = load_summary_data()
+    if summary:
+        total_pop = summary.get('affected_population', 0) or 0
+        total_loss = summary.get('direct_economic_loss', 0) or 0
+        houses = summary.get('collapsed_houses', 0) or 0
+    else:
+        total_pop = safe_get_col(df, '受灾人口(人)').sum()
+        total_loss = safe_get_col(df, '直接经济损失(万元)').sum()
+        houses = safe_get_col(df, '倒塌房屋间数(间)').sum()
+        
     pop_risk = "极高" if total_pop > 1000000 else ("高" if total_pop > 500000 else "中")
     loss_risk = "极高" if total_loss > 50000 else ("高" if total_loss > 10000 else "中")
-    return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(safe_get_col(df, '倒塌房屋间数(间)').sum()) }
+    return { "受灾人口总量": total_pop, "经济损失总量": total_loss, "受灾严重度评级": pop_risk, "经济受损度评级": loss_risk, "房屋倒塌间数": int(houses) }
 
 def get_summary_stats(df):
     if df.empty: return {}
-    return { '总记录数': len(df), 
-             '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
-             '死亡失踪人口': int(safe_get_col(df, '因灾死亡人口(人)').sum() + safe_get_col(df, '因灾失踪人口(人)').sum()), 
-             '转移安置人口': int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum()), 
-             '直接经济损失(万元)': round(safe_get_col(df, '直接经济损失(万元)').sum(), 2), 
-             '倒塌房屋间数': int(safe_get_col(df, '倒塌房屋间数(间)').sum()), 
-             '农作物受灾面积(公顷)': round(safe_get_col(df, '农作物受灾面积(公顷)').sum(), 2) }
+    # 优先读取“合计”行数据作为基准
+    summary = load_summary_data()
+    if summary:
+        return { '总记录数': len(df), 
+                 '受灾总人口': int(summary.get('affected_population', 0) or 0), 
+                 '死亡失踪人口': int((summary.get('death_population', 0) or 0) + (summary.get('missing_population', 0) or 0)), 
+                 '转移安置人口': int(summary.get('emergency_relocation', 0) or 0), 
+                 '直接经济损失(万元)': round(float(summary.get('direct_economic_loss', 0) or 0), 2), 
+                 '倒塌房屋间数': int(summary.get('collapsed_houses', 0) or 0), 
+                 '农作物受灾面积(公顷)': round(float(summary.get('crop_area_affected', 0) or 0), 2) }
+    else:
+        return { '总记录数': len(df), 
+                 '受灾总人口': int(safe_get_col(df, '受灾人口(人)').sum()), 
+                 '死亡失踪人口': int(safe_get_col(df, '因灾死亡人口(人)').sum() + safe_get_col(df, '因灾失踪人口(人)').sum()), 
+                 '转移安置人口': int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum()), 
+                 '直接经济损失(万元)': round(safe_get_col(df, '直接经济损失(万元)').sum(), 2), 
+                 '倒塌房屋间数': int(safe_get_col(df, '倒塌房屋间数(间)').sum()), 
+                 '农作物受灾面积(公顷)': round(safe_get_col(df, '农作物受灾面积(公顷)').sum(), 2) }
 
 def get_time_trend(df, freq='M'):
     if df.empty or '灾害发生时间' not in df.columns: return pd.DataFrame()
@@ -205,9 +249,23 @@ def get_disaster_type_analysis(df):
 
 def get_loss_structure(df):
     if df.empty: return {}
-    total = safe_get_col(df, '直接经济损失(万元)').sum()
+    # 优先读取“合计”行数据
+    summary = load_summary_data()
+    if summary:
+        total = float(summary.get('direct_economic_loss', 0) or 0)
+        housing = float(summary.get('housing_loss', 0) or 0)
+        agri = float(summary.get('agri_loss', 0) or 0)
+        infra = float(summary.get('infrastructure_loss', 0) or 0)
+        industry = float(summary.get('industry_loss', 0) or 0)
+    else:
+        total = safe_get_col(df, '直接经济损失(万元)').sum()
+        housing = safe_get_col(df, '其中：住房及居民家庭财产损失(万元)').sum()
+        agri = safe_get_col(df, '农林牧渔业损失(万元)').sum()
+        infra = safe_get_col(df, '基础设施损失(万元)').sum()
+        industry = safe_get_col(df, '工矿商贸业损失(万元)').sum()
+        
     if total == 0: return {}
-    return { '住房及家庭财产': round(safe_get_col(df, '其中：住房及居民家庭财产损失(万元)').sum() / total * 100, 2), '农林牧渔业': round(safe_get_col(df, '农林牧渔业损失(万元)').sum() / total * 100, 2), '基础设施': round(safe_get_col(df, '基础设施损失(万元)').sum() / total * 100, 2), '工矿商贸业': round(safe_get_col(df, '工矿商贸业损失(万元)').sum() / total * 100, 2) }
+    return { '住房及家庭财产': round(housing / total * 100, 2), '农林牧渔业': round(agri / total * 100, 2), '基础设施': round(infra / total * 100, 2), '工矿商贸业': round(industry / total * 100, 2) }
 
 def get_custom_analysis1(df):
     if df.empty or '区域' not in df.columns or '灾种' not in df.columns: return pd.DataFrame()
@@ -237,8 +295,14 @@ def predict_trend(df, freq='M', periods=3):
 
 def calc_resource_needs(df):
     if df.empty: return pd.DataFrame()
-    relocate = int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum())
-    houses = int(safe_get_col(df, '倒塌房屋间数(间)').sum())
+    summary = load_summary_data()
+    if summary:
+        relocate = int(summary.get('emergency_relocation', 0) or 0)
+        houses = int(summary.get('collapsed_houses', 0) or 0)
+    else:
+        relocate = int(safe_get_col(df, '紧急转移安置人口(累计值)(人)').sum())
+        houses = int(safe_get_col(df, '倒塌房屋间数(间)').sum())
+        
     need = {
         "物资类型": ["救灾帐篷(顶)", "棉被(床)", "饮用水(吨)", "应急食品(份)", "折叠床(张)"],
         "预计需求总量": [int(relocate / 5 * 1.1) + houses, int(relocate * 1.1), int(relocate * 2 * 7 / 1000), int(relocate * 3 * 7), int(relocate * 1.05)],
@@ -248,11 +312,15 @@ def calc_resource_needs(df):
 
 def get_yoy_compare(df):
     """动态化：根据当前数据集展示数据"""
-    if df.empty or '灾害发生时间' not in df.columns: return "数据不足，无法对比"
-    df_t = df.copy(); df_t['时间'] = pd.to_datetime(df_t['灾害发生时间'], errors='coerce'); df_t = df_t.dropna(subset=['时间'])
-    current_loss = round(df_t['直接经济损失(万元)'].sum(), 2)
-    current_pop = int(df_t['受灾人口(人)'].sum())
-    return {"当前总损失": current_loss, "当前总受灾人口": current_pop, "对比说明": "该数据基于当前导入的Excel明细自动计算（不含合计行），仅作为宏观参考"}
+    if df.empty: return "数据不足，无法对比"
+    summary = load_summary_data()
+    if summary:
+        current_loss = round(float(summary.get('direct_economic_loss', 0) or 0), 2)
+        current_pop = int(summary.get('affected_population', 0) or 0)
+    else:
+        current_loss = round(safe_get_col(df, '直接经济损失(万元)').sum(), 2)
+        current_pop = int(safe_get_col(df, '受灾人口(人)').sum())
+    return {"当前总损失": current_loss, "当前总受灾人口": current_pop, "对比说明": "该数据基于当前导入的Excel自动提取（未包含合计行重复计算），仅作为宏观参考"}
 
 def get_alert_level(df):
     stats = get_summary_stats(df)
@@ -482,10 +550,27 @@ elif st.session_state.page == '数据导入':
     uploaded_file = st.file_uploader("选择 Excel 文件 (.xlsx / .xls)", type=['xlsx', 'xls'])
     if uploaded_file is not None:
         try:
+            # 修复：这里必须使用 header=0，让第一行“合计”行作为正常数据读取
             raw_df = pd.read_excel(uploaded_file, header=0)
+            
+            # 首先查找“合计”行（用户要求）
+            summary_mask = raw_df['区域'].astype(str).str.contains('合计', na=False)
+            summary_raw = raw_df[summary_mask].copy()
+            
+            # 删除“合计”行，保留明细
+            raw_df = raw_df[~summary_mask].copy()
+            
+            # 保存“合计”行数据到 summary_data 表
+            if not summary_raw.empty:
+                # 标准化列名后保存
+                summary_raw = summary_raw.rename(columns={col: normalize_column_name(col) for col in summary_raw.columns})
+                save_summary_data(summary_raw)
+            
+            # 清洗明细数据
             df_clean = clean_data(raw_df)
             save_data(df_clean)
-            st.success(f"✅ 上传成功，共 {len(df_clean)} 条有效记录。")
+            
+            st.success(f"✅ 上传成功！共 {len(df_clean)} 条明细记录，并已提取“合计”行汇总数据。")
             st.dataframe(df_clean.head(10))
         except Exception as e:
             st.error(f"❌ 读取失败: {str(e)}")
