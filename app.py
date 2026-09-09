@@ -111,22 +111,15 @@ def save_data(df):
     df.to_sql('disaster_data', conn, if_exists='replace', index=False)
     conn.close()
 
-# 【核心修复点】：修改 save_summary_data，只保留数据库表中存在的列，过滤多余列
 def save_summary_data(summary_df):
     if summary_df is None or summary_df.empty: return
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM summary_data")
-    
     summary_df = summary_df.rename(columns=CH_TO_DB_MAPPING)
     if 'id' in summary_df.columns: summary_df.drop(columns=['id'], inplace=True)
-    
-    # 获取 summary_data 表中当前存在的列名
     cursor = conn.execute("SELECT * FROM summary_data LIMIT 1")
     col_names = [description[0] for description in cursor.description]
-    
-    # 只保留存在于表中的列，防止列数不匹配导致 Execution failed
     summary_df = summary_df[[col for col in summary_df.columns if col in col_names]]
-    
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
     conn.commit(); conn.close()
 
@@ -414,11 +407,25 @@ def generate_report(df):
         add_para(f"【图表内容分析】根据统计数据，直接经济损失最严重的时期出现在 {max_loss_row['时段']}，损失额达到 {max_loss_row['直接经济损失(万元)']:.2f} 万元，是灾情损失的高峰期。从整体趋势来看，经济损失随着时间推移呈现波动状态，反映出汛期集中强降雨对灾区造成的持续冲击。")
         add_para("【AI深度分析】模型识别出损失在特定月份的峰值与降雨量呈高度正相关。建议在主汛期来临前，利用气象卫星和物联感知网络提前预警，前置抢险物资。")
 
+    # ===== 重点修改区域：图2 =====
     if not disaster.empty:
         add_chart_title("图2：各灾种经济损失对比（AI智能研判）")
-        fig, ax = plt.subplots(figsize=(8, 6))
+        
+        # 【终极修复】：只提取经济损失最大的前10个灾种，防止几十个标签挤在一起
+        disaster = disaster.sort_values('直接经济损失(万元)', ascending=False).head(10)
+        
+        # 增大画布，让字有空间展示
+        fig, ax = plt.subplots(figsize=(12, 6)) 
         ax.bar(disaster['灾种'], disaster['直接经济损失(万元)'], color=['#d4af37', '#ff6b6b', '#4ecdc4', '#45b7d1'])
-        fig.savefig("g2.png", dpi=300); plt.close(fig)
+        
+        # 核心：旋转标签45度，靠右对齐，并放大字号
+        plt.xticks(rotation=45, ha='right', fontsize=14)
+        plt.yticks(fontsize=12)
+        
+        # 自动调整布局，防止保存后被截断
+        plt.tight_layout()
+        
+        fig.savefig("g2.png", dpi=300, bbox_inches='tight'); plt.close(fig)
         doc.add_picture("g2.png", width=Inches(6.0))
         top_disaster = disaster.loc[disaster['直接经济损失(万元)'].idxmax()]
         add_para(f"【图表内容分析】从灾种维度看，【{top_disaster['灾种']}】造成的直接经济损失最为严重，占全部灾种损失的主导地位，是当前防灾减灾的最核心目标。紧随其后的是其他灾种，但损失强度明显低于最高值。")
@@ -560,12 +567,9 @@ elif st.session_state.page == '数据导入':
 
     if uploaded_file is not None:
         try:
-            # 终极修复1：强制重命名，规避中文特殊字符解析报错
             uploaded_file.name = "data.xlsx"
-            
             file_bytes = uploaded_file.getvalue()
             
-            # 终极修复2：多引擎尝试读取，兼容各种刁钻格式
             xls = None
             try:
                 xls = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
@@ -578,7 +582,7 @@ elif st.session_state.page == '数据导入':
             raw_df = None
             if xls is not None:
                 sheet_name = xls.sheet_names[0]
-                for skip in range(5):  # 智能寻找表头
+                for skip in range(5):
                     temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=skip)
                     if '区域' in temp_df.columns or '区域' in [normalize_column_name(c) for c in temp_df.columns]:
                         raw_df = temp_df
@@ -586,7 +590,6 @@ elif st.session_state.page == '数据导入':
                 if raw_df is None:
                     raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
             else:
-                # 终极修复3：有时候只是一个改后缀的CSV文件，硬读
                 raw_df = pd.read_csv(io.BytesIO(file_bytes))
 
             if raw_df is None:
@@ -621,7 +624,6 @@ elif st.session_state.page == '数据导入':
         except ModuleNotFoundError:
             st.error("❌ 缺失引擎库！请去 requirements.txt 添加 openpyxl 和 python-calamine，然后点击右上角 Reboot 重启！")
         except Exception as e:
-            # 终极修复4：直接把底层详细报错打印出来，不再被模糊的 DatabaseError 糊弄
             st.error(f"❌ 读取失败: 底层错误原因 -> {repr(e)}")
             st.code(traceback.format_exc())
             st.info("💡 终极提示：请确认 requirements.txt 添加了依赖，保存后点击 Streamlit Cloud 右上角 ⋮ -> Reboot 重启服务器。切勿只刷新网页！")
