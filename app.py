@@ -21,11 +21,10 @@ import plotly.graph_objects as go
 import traceback
 from datetime import datetime
 
-# 强制依赖环境检查（防止 Execution failed）
 try:
     import openpyxl
 except ImportError:
-    st.error("❌ 服务器环境缺少 openpyxl 库。请在 requirements.txt 中添加 openpyxl，并点击 Reboot 重启！")
+    st.error("❌ 缺少 openpyxl，请在 requirements.txt 添加后重启。")
     st.stop()
 
 try:
@@ -34,70 +33,81 @@ except ImportError:
     xlrd = None
 
 # ============================================================
-# 【答辩改造】中文字体加载：优先项目内 fonts/ 目录，其次系统字体，绝不联网
+# 【终极版】中文字体加载 + 显式应用到每个图（不依赖 rcParams）
 # ============================================================
-def set_chinese_font():
-    """中文字体加载：优先项目内 / 系统字体，绝不联网"""
-    font_path = None
+FONT_PROP = None
 
-    # 1. 项目自带字体（推荐：把字体放到项目 fonts/ 目录，随代码一起部署）
-    project_fonts = [
-        "fonts/SimHei.ttf",
-        "fonts/simhei.ttf",
-        "fonts/NotoSansCJK-Regular.ttc",
-        "fonts/msyh.ttc",
-        "fonts/msyh.ttf",
-        "fonts/wqy-zenhei.ttc",
-        "fonts/wqy-microhei.ttc",
+def init_chinese_font():
+    global FONT_PROP
+    candidates = [
+        "fonts/SimHei.ttf", "fonts/simhei.ttf", "fonts/SIMHEI.TTF", "fonts/SimHei.TTF",
+        "fonts/msyh.ttc", "fonts/msyh.ttf", "fonts/MSYH.TTC",
+        "fonts/NotoSansCJK-Regular.ttc", "fonts/NotoSansCJKsc-Regular.otf",
+        "fonts/SourceHanSansSC-Regular.otf", "fonts/SourceHanSansCN-Regular.otf",
+        "fonts/wqy-zenhei.ttc", "fonts/wqy-microhei.ttc",
+        "SimHei.ttf", "simhei.ttf", "msyh.ttc", "msyh.ttf",
+        "NotoSansCJK-Regular.ttc", "wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simsun.ttc",
     ]
-    for p in project_fonts:
-        if os.path.exists(p) and os.path.getsize(p) > 1000:
-            font_path = p
-            break
+    for path in candidates:
+        if os.path.exists(path) and os.path.getsize(path) > 5000:
+            try:
+                fm.fontManager.addfont(path)
+                prop = fm.FontProperties(fname=path)
+                name = prop.get_name()
+                FONT_PROP = prop
+                plt.rcParams['font.sans-serif'] = [name, 'DejaVu Sans']
+                plt.rcParams['font.family'] = 'sans-serif'
+                plt.rcParams['axes.unicode_minus'] = False
+                print(f"✅ 中文字体加载成功: {path} -> {name}")
+                return True, path, name
+            except Exception as e:
+                print(f"⚠️ 加载 {path} 失败: {e}")
+                continue
+    print("❌ 未找到任何中文字体，Word 报告图表中文将显示为方块")
+    return False, None, None
 
-    # 2. 系统已安装的中文字体
-    if font_path is None:
-        system_fonts = [
-            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/arphic/uming.ttc",
-            "/System/Library/Fonts/PingFang.ttc",
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/msyh.ttf",
-            "C:/Windows/Fonts/simhei.ttf",
-            "C:/Windows/Fonts/simsun.ttc",
-        ]
-        for p in system_fonts:
-            if os.path.exists(p):
-                font_path = p
-                break
+FONT_OK, FONT_PATH, FONT_NAME = init_chinese_font()
 
-    # 3. 注册字体
-    if font_path:
-        try:
-            fm.fontManager.addfont(font_path)
-            prop = fm.FontProperties(fname=font_path)
-            font_name = prop.get_name()
-            plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans']
-            plt.rcParams['font.family'] = 'sans-serif'
-            plt.rcParams['axes.unicode_minus'] = False
-            print(f"✅ 中文字体已加载: {font_path} -> {font_name}")
-            return font_name
-        except Exception as e:
-            print(f"⚠️ 字体注册失败: {e}")
+def _apply_font_to_axes(ax):
+    if FONT_PROP is None:
+        return
+    for t in ax.get_xticklabels():
+        t.set_fontproperties(FONT_PROP)
+    for t in ax.get_yticklabels():
+        t.set_fontproperties(FONT_PROP)
+    if ax.get_title():
+        ax.set_title(ax.get_title(), fontproperties=FONT_PROP)
+    if ax.get_xlabel():
+        ax.set_xlabel(ax.get_xlabel(), fontproperties=FONT_PROP)
+    if ax.get_ylabel():
+        ax.set_ylabel(ax.get_ylabel(), fontproperties=FONT_PROP)
+    leg = ax.get_legend()
+    if leg:
+        for t in leg.get_texts():
+            t.set_fontproperties(FONT_PROP)
 
-    # 4. 实在找不到，用默认字体（中文会变方块，但不影响运行）
-    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
-    plt.rcParams['axes.unicode_minus'] = False
-    print("⚠️ 未找到中文字体，Word 报告图表中文可能显示为方块")
-    return None
+def save_fig_with_font(fig, path, **kwargs):
+    if FONT_PROP is not None:
+        for ax in fig.get_axes():
+            _apply_font_to_axes(ax)
+            for txt in ax.texts:
+                txt.set_fontproperties(FONT_PROP)
+    fig.savefig(path, dpi=300, **kwargs)
+    plt.close(fig)
 
-set_chinese_font()
 st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", page_icon="☁️")
 
 # ============================================================
-# 【答辩演示】四级权限切换（不校验密码，纯展示数据域隔离）
+# 四级权限演示
 # ============================================================
 ROLE_LEVELS = {1: "省级", 2: "市州级", 3: "县区级", 4: "乡镇级"}
 
@@ -107,6 +117,11 @@ DEMO_ROLES = {
     "县区级（成都市金牛区）": {"level": 3, "region": "金牛区"},
     "乡镇级（金牛区某乡镇）": {"level": 4, "region": "某乡镇"},
 }
+
+if FONT_OK:
+    st.sidebar.success(f"✅ 中文字体：{os.path.basename(FONT_PATH)}")
+else:
+    st.sidebar.error("❌ 未找到中文字体，请把 SimHei.ttf 放到 fonts/ 目录")
 
 st.sidebar.markdown("### 🛡️ 四级权限演示")
 demo_role_name = st.sidebar.selectbox(
@@ -123,7 +138,6 @@ st.sidebar.markdown(f"""
 """)
 
 def filter_data_by_user(df, user):
-    """按行政区划做数据域隔离：省级看全部，其余按区域名前缀过滤"""
     if df is None or df.empty:
         return df
     if user["level"] == 1:
@@ -136,7 +150,6 @@ def filter_data_by_user(df, user):
 DB_PATH = "data/uploaded_data.db"
 os.makedirs("data", exist_ok=True)
 
-# ==================== 核心修复：中文列名与数据库英文列名映射 ====================
 CH_TO_DB_MAPPING = {
     '区域': 'region', '灾种': 'disaster_type', '隶属区域': 'parent_region', '灾害发生时间': 'disaster_time',
     '受灾人口(人)': 'affected_population', '因灾死亡人口(人)': 'death_population', '因灾失踪人口(人)': 'missing_population',
@@ -196,7 +209,6 @@ def save_summary_data(summary_df):
     summary_df.to_sql('summary_data', conn, if_exists='append', index=False)
     conn.commit(); conn.close()
 
-# ---------- 列名标准化映射 ----------
 COLUMN_MAPPING = {
     '区域': ['区域', '地区', '行政区', 'region', 'Region'],
     '灾种': ['灾种', '灾害类型', 'disaster_type', 'Disaster Type'],
@@ -408,7 +420,6 @@ def get_region_radar(df):
         if top_regions[col].max() > 0: top_regions[col] = top_regions[col] / top_regions[col].max()
     return top_regions
 
-# ---------- 报告生成 ----------
 def generate_report(df):
     doc = Document()
     section = doc.sections[0]
@@ -474,7 +485,7 @@ def generate_report(df):
         else:
             ax.plot(trend['时段'], trend['直接经济损失(万元)'], color='#d4af37', linewidth=2)
             ax.grid(True, linestyle='--', alpha=0.5)
-        fig.savefig("g1.png", dpi=300); plt.close(fig)
+        save_fig_with_font(fig, "g1.png")
         doc.add_picture("g1.png", width=Inches(6.0))
         max_loss_row = trend.loc[trend['直接经济损失(万元)'].idxmax()]
         add_para(f"【图表内容分析】根据统计数据，直接经济损失最严重的时期出现在 {max_loss_row['时段']}，损失额达到 {max_loss_row['直接经济损失(万元)']:.2f} 万元，是灾情损失的高峰期。从整体趋势来看，经济损失随着时间推移呈现波动状态，反映出汛期集中强降雨对灾区造成的持续冲击。")
@@ -488,7 +499,7 @@ def generate_report(df):
         plt.xticks(rotation=45, ha='right', fontsize=14)
         plt.yticks(fontsize=12)
         plt.tight_layout()
-        fig.savefig("g2.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+        save_fig_with_font(fig, "g2.png", bbox_inches='tight')
         doc.add_picture("g2.png", width=Inches(6.0))
         top_disaster = disaster.loc[disaster['直接经济损失(万元)'].idxmax()]
         add_para(f"【图表内容分析】从灾种维度看，【{top_disaster['灾种']}】造成的直接经济损失最为严重，占全部灾种损失的主导地位，是当前防灾减灾的最核心目标。紧随其后的是其他灾种，但损失强度明显低于最高值。")
@@ -497,8 +508,11 @@ def generate_report(df):
     if loss:
         add_chart_title("图3：核心灾损结构拆解分析（AI智能研判）")
         fig, ax = plt.subplots(figsize=(8, 8))
-        ax.pie(loss.values(), labels=loss.keys(), autopct='%1.1f%%', startangle=140)
-        fig.savefig("g3.png", dpi=300); plt.close(fig)
+        wedges, texts, autotexts = ax.pie(loss.values(), labels=loss.keys(), autopct='%1.1f%%', startangle=140)
+        if FONT_PROP is not None:
+            for t in texts: t.set_fontproperties(FONT_PROP)
+            for t in autotexts: t.set_fontproperties(FONT_PROP)
+        save_fig_with_font(fig, "g3.png")
         doc.add_picture("g3.png", width=Inches(6.0))
         loss_percentages = {k: v for k, v in loss.items()}
         add_para(f"【图表内容分析】从灾害损失结构看，住房及居民家庭财产损失占比最高，达到 {loss_percentages.get('住房及家庭财产', 0)}%；其次是农林牧渔业损失，占比 {loss_percentages.get('农林牧渔业', 0)}%。这说明灾后恢复重建工作的重心主要在于居民住房修复和农业生产的恢复。")
@@ -508,7 +522,7 @@ def generate_report(df):
         add_chart_title("图4：高风险区域灾损Top5排名（AI智能研判）")
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.barh(region_top5['区域'] + '-' + region_top5['灾种'], region_top5['直接经济损失(万元)'], color='#45b7d1')
-        fig.savefig("g4.png", dpi=300); plt.close(fig)
+        save_fig_with_font(fig, "g4.png")
         doc.add_picture("g4.png", width=Inches(6.0))
         top_region = region_top5.iloc[0]
         add_para(f"【图表内容分析】在区域与灾种组合的损失排名中，【{top_region['区域']}】发生的【{top_region['灾种']}】灾情最为突出，直接经济损失达到 {top_region['直接经济损失(万元)']:.2f} 万元，是当前需要重点防范的核心区域。")
@@ -519,11 +533,14 @@ def generate_report(df):
         melt_df = freq_data.melt(id_vars='月份', var_name='灾种', value_name='频次')
         fig, ax = plt.subplots(figsize=(10, 6))
         pivot_data = melt_df.pivot_table(index='灾种', columns='月份', values='频次', fill_value=0)
-        im = ax.imshow(pivot_data, cmap='YlOrRd')
+        im = ax.imshow(pivot_data, cmap='YlOrRd', aspect='auto')
         ax.set_xticks(range(len(pivot_data.columns))); ax.set_xticklabels(pivot_data.columns, rotation=45)
         ax.set_yticks(range(len(pivot_data.index))); ax.set_yticklabels(pivot_data.index)
-        fig.colorbar(im, ax=ax)
-        fig.savefig("g5.png", dpi=300); plt.close(fig)
+        cbar = fig.colorbar(im, ax=ax)
+        if FONT_PROP is not None:
+            for t in cbar.ax.get_yticklabels():
+                t.set_fontproperties(FONT_PROP)
+        save_fig_with_font(fig, "g5.png", bbox_inches='tight')
         doc.add_picture("g5.png", width=Inches(6.0))
         max_freq = melt_df.loc[melt_df['频次'].idxmax()]
         add_para(f"【图表内容分析】从频次热力图来看，【{max_freq['灾种']}】在【{max_freq['月份']}月份】的发生频次最高，是灾情发生最集中的时段。这说明该灾种具有极强的季节性特征，且与雨季周期高度吻合。")
@@ -577,7 +594,6 @@ def generate_report(df):
     add_heading("十七、数据来源与AI模型局限性说明")
     add_para("本报告数据来源于“灾智云”智能决策平台接入的四川省减灾中心实时上报数据。本系统利用机器学习算法（包括趋势拟合、分类预测等）进行大数据建模。由于本期灾情数据样本量有限，AI模型的预测结果受历史数据完整性限制，仅作为辅助决策参考。随着数据量增加，模型精度将持续提升，欢迎各灾情上报单位持续提供高质量数据源。")
 
-    # 报告页脚水印：生成角色 + 时间 + 密级
     footer = doc.add_paragraph()
     footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = footer.add_run(
@@ -590,7 +606,6 @@ def generate_report(df):
     doc.save(file_stream); file_stream.seek(0)
     return file_stream
 
-# ==================== 全局高级商业UI样式 ====================
 st.markdown("""
     <style>
         .stApp { background: linear-gradient(135deg, #0a0f1e 0%, #162a4a 40%, #0d1b2a 100%); color: #ffffff; }
@@ -605,7 +620,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==================== 页面导航 ====================
 if 'page' not in st.session_state: st.session_state.page = '首页'
 def set_page(page_name): st.session_state.page = page_name
 c1, c2, c3, c4 = st.columns(4)
@@ -619,12 +633,10 @@ with c4:
     if st.button("📄 智能报告", key="nav_report", use_container_width=True): set_page('智能报告')
 st.markdown("---")
 
-# ==================== 首页 ====================
 if st.session_state.page == '首页':
     st.markdown('<div class="main-title">☁️ 灾智云</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">自然灾害智能分析 · 辅助决策支撑平台 | 科技赋能应急，智能守护生命</div>', unsafe_allow_html=True)
 
-# ==================== 数据导入 ====================
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
@@ -704,7 +716,6 @@ elif st.session_state.page == '数据导入':
             st.code(traceback.format_exc())
             st.info("💡 终极提示：请确认 requirements.txt 添加了依赖，保存后点击 Streamlit Cloud 右上角 ⋮ -> Reboot 重启服务器。切勿只刷新网页！")
 
-# ==================== 多维度分析 ====================
 elif st.session_state.page == '多维度分析':
     st.markdown("## 📊 综合分析仪表板")
     df_all = load_data()
@@ -921,7 +932,6 @@ elif st.session_state.page == '多维度分析':
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
                 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 智能报告 ====================
 elif st.session_state.page == '智能报告':
     st.markdown("## 📄 智能报告生成")
     df_all = load_data()
