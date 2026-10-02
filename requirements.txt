@@ -8,3 +8,6 @@ python-docx
 matplotlib
 numpy
 sqlalchemy
+passlib
+bcrypt
+pycryptodome
