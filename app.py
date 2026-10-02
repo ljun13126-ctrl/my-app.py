@@ -34,37 +34,64 @@ except ImportError:
     xlrd = None
 
 # ============================================================
-# 【答辩改造】中文字体本地化，杜绝任何外网请求
+# 【答辩改造】中文字体加载：优先项目内 fonts/ 目录，其次系统字体，绝不联网
 # ============================================================
 def set_chinese_font():
-    """全部使用本地字体，杜绝任何外网请求（答辩保密要点）"""
-    local_candidates = [
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/arphic/uming.ttc",
+    """中文字体加载：优先项目内 / 系统字体，绝不联网"""
+    font_path = None
+
+    # 1. 项目自带字体（推荐：把字体放到项目 fonts/ 目录，随代码一起部署）
+    project_fonts = [
         "fonts/SimHei.ttf",
-        "fonts/NotoSansCJK.ttf",
+        "fonts/simhei.ttf",
+        "fonts/NotoSansCJK-Regular.ttc",
+        "fonts/msyh.ttc",
+        "fonts/msyh.ttf",
+        "fonts/wqy-zenhei.ttc",
+        "fonts/wqy-microhei.ttc",
     ]
-    for path in local_candidates:
-        if os.path.exists(path):
-            try:
-                fm.fontManager.addfont(path)
-                prop = fm.FontProperties(fname=path)
-                plt.rcParams['font.family'] = prop.get_name()
-                plt.rcParams['axes.unicode_minus'] = False
-                return
-            except Exception:
-                continue
-    for font_name in ['SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei',
-                      'Noto Sans CJK SC', 'Arial Unicode MS']:
+    for p in project_fonts:
+        if os.path.exists(p) and os.path.getsize(p) > 1000:
+            font_path = p
+            break
+
+    # 2. 系统已安装的中文字体
+    if font_path is None:
+        system_fonts = [
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/msyh.ttf",
+            "C:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/simsun.ttc",
+        ]
+        for p in system_fonts:
+            if os.path.exists(p):
+                font_path = p
+                break
+
+    # 3. 注册字体
+    if font_path:
         try:
-            fm.findfont(font_name, fallback_to_default=False)
-            plt.rcParams['font.sans-serif'] = [font_name]
+            fm.fontManager.addfont(font_path)
+            prop = fm.FontProperties(fname=font_path)
+            font_name = prop.get_name()
+            plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans']
+            plt.rcParams['font.family'] = 'sans-serif'
             plt.rcParams['axes.unicode_minus'] = False
-            return
-        except Exception:
-            continue
+            print(f"✅ 中文字体已加载: {font_path} -> {font_name}")
+            return font_name
+        except Exception as e:
+            print(f"⚠️ 字体注册失败: {e}")
+
+    # 4. 实在找不到，用默认字体（中文会变方块，但不影响运行）
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
+    print("⚠️ 未找到中文字体，Word 报告图表中文可能显示为方块")
+    return None
 
 set_chinese_font()
 st.set_page_config(page_title="灾智云 · 智能决策平台", layout="wide", page_icon="☁️")
@@ -550,7 +577,7 @@ def generate_report(df):
     add_heading("十七、数据来源与AI模型局限性说明")
     add_para("本报告数据来源于“灾智云”智能决策平台接入的四川省减灾中心实时上报数据。本系统利用机器学习算法（包括趋势拟合、分类预测等）进行大数据建模。由于本期灾情数据样本量有限，AI模型的预测结果受历史数据完整性限制，仅作为辅助决策参考。随着数据量增加，模型精度将持续提升，欢迎各灾情上报单位持续提供高质量数据源。")
 
-    # 【答辩改造】报告页脚水印：生成角色 + 时间 + 密级
+    # 报告页脚水印：生成角色 + 时间 + 密级
     footer = doc.add_paragraph()
     footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = footer.add_run(
@@ -601,7 +628,6 @@ if st.session_state.page == '首页':
 elif st.session_state.page == '数据导入':
     st.markdown("## 📥 数据导入与清洗")
 
-    # 【答辩改造】县级/乡镇级只读，不允许导入
     if demo_user["level"] > 2:
         st.warning("⚠️ 当前演示角色为县级/乡镇级，仅可查看，数据导入需市州级及以上权限。")
         st.stop()
