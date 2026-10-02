@@ -33,74 +33,68 @@ except ImportError:
     xlrd = None
 
 # ============================================================
-# 【终极版】中文字体加载 + 显式应用到每个图（不依赖 rcParams）
+# 中文字体：支持 ttf / otf / ttc，显式应用到每个图
 # ============================================================
 FONT_PROP = None
+FONT_OK = False
+FONT_PATH = None
 
 def init_chinese_font():
-    global FONT_PROP
+    global FONT_PROP, FONT_OK, FONT_PATH
+
     candidates = [
-        "fonts/SimHei.ttf", "fonts/simhei.ttf", "fonts/SIMHEI.TTF", "fonts/SimHei.TTF",
-        "fonts/msyh.ttc", "fonts/msyh.ttf", "fonts/MSYH.TTC",
-        "fonts/NotoSansCJK-Regular.ttc", "fonts/NotoSansCJKsc-Regular.otf",
-        "fonts/SourceHanSansSC-Regular.otf", "fonts/SourceHanSansCN-Regular.otf",
-        "fonts/wqy-zenhei.ttc", "fonts/wqy-microhei.ttc",
-        "SimHei.ttf", "simhei.ttf", "msyh.ttc", "msyh.ttf",
-        "NotoSansCJK-Regular.ttc", "wqy-zenhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/arphic/uming.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
+        "fonts/SimHei.otf",
+        "fonts/SimHei.ttf",
+        "fonts/simhei.otf",
+        "fonts/simhei.ttf",
+        "fonts/SourceHanSansCN-Regular.otf",
+        "fonts/SourceHanSansSC-Regular.otf",
+        "fonts/NotoSansSC-Regular.otf",
+        "fonts/msyh.ttc",
+        "fonts/msyh.ttf",
+        "SimHei.otf",
+        "SimHei.ttf",
+        "simhei.ttf",
         "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simsun.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/simhei/simhei.ttf",
     ]
+
     for path in candidates:
         if os.path.exists(path) and os.path.getsize(path) > 5000:
             try:
                 fm.fontManager.addfont(path)
-                prop = fm.FontProperties(fname=path)
-                name = prop.get_name()
-                FONT_PROP = prop
-                plt.rcParams['font.sans-serif'] = [name, 'DejaVu Sans']
+                FONT_PROP = fm.FontProperties(fname=path)
+                FONT_PATH = path
+                FONT_OK = True
+                plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
                 plt.rcParams['font.family'] = 'sans-serif'
                 plt.rcParams['axes.unicode_minus'] = False
-                print(f"✅ 中文字体加载成功: {path} -> {name}")
-                return True, path, name
+                print(f"✅ 中文字体加载成功: {path}")
+                return
             except Exception as e:
-                print(f"⚠️ 加载 {path} 失败: {e}")
+                print(f"⚠️ {path} 加载失败: {e}")
                 continue
-    print("❌ 未找到任何中文字体，Word 报告图表中文将显示为方块")
-    return False, None, None
 
-FONT_OK, FONT_PATH, FONT_NAME = init_chinese_font()
+    print("❌ 未找到中文字体，请把 SimHei.otf 放到项目 fonts/ 目录")
 
-def _apply_font_to_axes(ax):
-    if FONT_PROP is None:
-        return
-    for t in ax.get_xticklabels():
-        t.set_fontproperties(FONT_PROP)
-    for t in ax.get_yticklabels():
-        t.set_fontproperties(FONT_PROP)
-    if ax.get_title():
-        ax.set_title(ax.get_title(), fontproperties=FONT_PROP)
-    if ax.get_xlabel():
-        ax.set_xlabel(ax.get_xlabel(), fontproperties=FONT_PROP)
-    if ax.get_ylabel():
-        ax.set_ylabel(ax.get_ylabel(), fontproperties=FONT_PROP)
-    leg = ax.get_legend()
-    if leg:
-        for t in leg.get_texts():
-            t.set_fontproperties(FONT_PROP)
+init_chinese_font()
 
 def save_fig_with_font(fig, path, **kwargs):
+    """保存图片时给所有文字强制套中文字体"""
     if FONT_PROP is not None:
         for ax in fig.get_axes():
-            _apply_font_to_axes(ax)
-            for txt in ax.texts:
-                txt.set_fontproperties(FONT_PROP)
+            for t in ax.get_xticklabels(): t.set_fontproperties(FONT_PROP)
+            for t in ax.get_yticklabels(): t.set_fontproperties(FONT_PROP)
+            if ax.get_title(): ax.set_title(ax.get_title(), fontproperties=FONT_PROP)
+            if ax.get_xlabel(): ax.set_xlabel(ax.get_xlabel(), fontproperties=FONT_PROP)
+            if ax.get_ylabel(): ax.set_ylabel(ax.get_ylabel(), fontproperties=FONT_PROP)
+            leg = ax.get_legend()
+            if leg:
+                for t in leg.get_texts(): t.set_fontproperties(FONT_PROP)
+            for t in ax.texts: t.set_fontproperties(FONT_PROP)
     fig.savefig(path, dpi=300, **kwargs)
     plt.close(fig)
 
@@ -121,7 +115,7 @@ DEMO_ROLES = {
 if FONT_OK:
     st.sidebar.success(f"✅ 中文字体：{os.path.basename(FONT_PATH)}")
 else:
-    st.sidebar.error("❌ 未找到中文字体，请把 SimHei.ttf 放到 fonts/ 目录")
+    st.sidebar.error("❌ 未找到中文字体，请把 SimHei.otf 放到 fonts/ 目录")
 
 st.sidebar.markdown("### 🛡️ 四级权限演示")
 demo_role_name = st.sidebar.selectbox(
